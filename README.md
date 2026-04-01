@@ -1,81 +1,120 @@
 # jobcopilot
 
-Automated daily job digest: scrapes LinkedIn, Indeed, and Adzuna for new listings, scores them against your profile with an LLM, tailors your CV for the top matches, and commits a markdown digest to the repo every morning.
+A daily job search copilot for the Spanish market. Run it in the morning, get a ranked list of HR jobs with a tailored CV for each top role — so you know exactly what to apply to today.
+
+---
+
+## The problem
+
+Job searching isn't hard because there aren't enough jobs. It's hard because there's too much noise. You spend 40 minutes scrolling, apply to three things that seemed okay, and spend the next week wondering if any of them were actually worth it.
+
+What eats your time isn't applying — it's the daily triage: scanning listings, judging fit, rewriting your CV summary for each role. This tool does that part for you.
+
+---
+
+## What it does
+
+Runs a pipeline that:
+
+1. Fetches jobs from the last 24–72 hours across Indeed, LinkedIn, and Adzuna (Spain)
+2. Scores each job 0–100 against your profile — skills, seniority, work mode, deal-breakers
+3. Filters to the top 5 and skips anything you've already seen
+4. Rewrites your CV summary and key bullets for the top 3 roles
+5. Saves two files: a markdown digest with reasoning and apply links, and a CSV with all scored jobs
+
+You open one file and already know what to do.
+
+It does **not** auto-apply. That's deliberate — mass applications hurt more than they help.
+
+---
+
+## Job sources
+
+| Source | Status | Notes |
+|--------|--------|-------|
+| Indeed | ✅ Active | Via jobspy, Spain |
+| LinkedIn | ✅ Active | Via jobspy, results vary |
+| Adzuna | ✅ Active | Requires free API key, aggregates Spanish boards |
+
+---
 
 ## Setup
 
-### 1. Clone and install
+Requires Python 3.10+.
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/mda-diaz/jobcopilot.git
 cd jobcopilot
+python3.11 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Add your CV
+Place your CV at `config/cv.pdf` — it gets extracted automatically on first run.
 
-> **Required — the repo does not include your CV.**
+Edit `config/profile.yaml` with your search terms, skills, location, and deal-breakers.
 
-Place your CV as `config/cv.pdf`. On first run, the pipeline will extract the text and save it to `config/cv_template.md` automatically. Both files are excluded from version control via `.gitignore`.
+Copy `.env.example` to `.env` and fill in your keys:
 
-### 3. Configure your profile
-
-Edit `config/profile.yaml` with your name, target roles, skills, and preferences.
-
-### 4. Set up environment variables
-
-```bash
-cp .env.example .env
+```
+ANTHROPIC_API_KEY=your_key_here        # console.anthropic.com
+OPENAI_API_KEY=your_key_here           # optional fallback
+ADZUNA_APP_ID=your_id_here             # free at developer.adzuna.com
+ADZUNA_API_KEY=your_key_here
 ```
 
-Fill in `.env` with your API keys:
+Only `ANTHROPIC_API_KEY` is required to run.
 
-| Variable | Required | Notes |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Recommended | Uses `claude-haiku-4-5` for scoring and tailoring |
-| `OPENAI_API_KEY` | Fallback | Uses `gpt-4o-mini` if Anthropic key is absent |
-| `ADZUNA_APP_ID` | Optional | Enables Adzuna job source |
-| `ADZUNA_API_KEY` | Optional | Enables Adzuna job source |
+---
 
-At least one of `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` must be set.
-
-### 5. Run manually
+## Run
 
 ```bash
-python main.py
+source venv/bin/activate
+python3 main.py
 ```
 
-Output is saved to `data/digests/`.
+---
 
-## Automated runs (GitHub Actions)
+## Output
 
-The workflow in `.github/workflows/daily_digest.yml` runs at **06:00 UTC** daily (07:00 Madrid in winter, 08:00 in summer).
+Two files land in `data/digests/` after each run:
 
-Add the four API keys as repository secrets (Settings → Secrets and variables → Actions):
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_API_KEY`
+**`digest_YYYY-MM-DD.md`** — top 5 jobs with score, reasoning, red flags, apply link, and path to tailored CV
 
-The workflow commits new digest files and the updated `seen_jobs.json` back to the repo automatically. To trigger it manually: Actions → Daily Job Digest → Run workflow.
+**`jobs_YYYY-MM-DD.csv`** — all scored jobs ranked by fit, openable in Excel or Google Sheets
+
+---
+
+## Cost
+
+Uses Claude Haiku by default (GPT-4o-mini as fallback). Roughly **€0.03–0.06 per run** — under €1.50/month running daily.
+
+---
 
 ## Project structure
 
 ```
 jobcopilot/
-├── main.py                  # Pipeline entry point
-├── requirements.txt
-├── .env.example
+├── .github/workflows/daily_digest.yml   # optional: runs automatically at 07:00
 ├── config/
-│   ├── profile.yaml         # Your job search profile
-│   ├── cv.pdf               # Your CV — add manually, not committed
-│   └── cv_template.md       # Auto-extracted from cv.pdf, not committed
+│   ├── profile.yaml                     # your search preferences
+│   └── cv.pdf                           # your CV (not committed to git)
 ├── data/
-│   ├── seen_jobs.json        # Tracks processed URLs — not committed
-│   └── digests/             # Daily digest and tailored CV files
+│   ├── seen_jobs.json                   # dedup cache
+│   └── digests/                         # daily output
 ├── src/
-│   ├── fetch.py             # Scrapes jobs from Indeed, LinkedIn, Adzuna
-│   ├── score.py             # LLM scoring and filtering
-│   ├── tailor.py            # LLM CV tailoring per job
-│   └── digest.py            # Builds and saves the markdown digest
-└── .github/
-    └── workflows/
-        └── daily_digest.yml # Scheduled GitHub Actions workflow
+│   ├── fetch.py                         # job scraping
+│   ├── score.py                         # LLM scoring
+│   ├── tailor.py                        # CV rewriting
+│   └── digest.py                        # output generation
+├── main.py
+├── requirements.txt
+└── .env.example
 ```
+
+---
+
+## Automatic daily run (optional)
+
+Push to GitHub, add your API keys as repository secrets (Settings → Secrets → Actions), and the workflow runs automatically at 07:00 Madrid time. Results are committed back to the repo in `data/digests/`.
