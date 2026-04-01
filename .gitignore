@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+data/seen_jobs.json
+data/digests/
+config/cv.pdf
+config/cv_template.md
+venv/

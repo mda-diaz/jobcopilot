@@ -1,0 +1,8 @@
+python-jobspy
+anthropic
+openai
+pdfminer.six
+python-dotenv
+pyyaml
+jinja2
+requests

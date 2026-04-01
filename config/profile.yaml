@@ -1,0 +1,37 @@
+name: Your Name
+email: your@email.com
+location: Spain
+language: es
+search_terms:
+  - "human resources generalist"
+  - "HR generalist"
+  - "generalista de recursos humanos"
+  - "HR operations"
+  - "responsable de recursos humanos"
+  - "people manager"
+  - "people operations"
+  - "HRBP"
+work_mode:
+  - remote
+  - hybrid
+seniority: senior
+min_score: 60
+skills:
+  - talent acquisition
+  - employee relations
+  - performance management
+  - HR business partnering
+  - onboarding
+  - labor law Spain
+  - payroll
+  - HRIS
+industries_preferred:
+  - tech
+  - fintech
+  - ecommerce
+  - startups
+deal_breakers:
+  - junior
+  - intern
+  - presencial
+  - "100% on-site"

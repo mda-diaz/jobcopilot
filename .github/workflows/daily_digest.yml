@@ -1,0 +1,39 @@
+name: Daily Job Digest
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # 06:00 UTC — 07:00 Madrid (08:00 in summer, no DST logic needed)
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+      ADZUNA_API_KEY: ${{ secrets.ADZUNA_API_KEY }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        run: python main.py
+
+      - name: Commit and push digest files
+        run: |
+          git config user.name "github-actions"
+          git config user.email "action@github.com"
+          git add data/digests/ data/seen_jobs.json
+          git diff --quiet --cached || git commit -m "digest: $(date -u +%Y-%m-%d)"
+          git push
