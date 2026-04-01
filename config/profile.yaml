@@ -1,14 +1,17 @@
 name: Your Name
 email: your@email.com
-location: Spain
+location: Valencia
+country: es
 language: es
 search_terms:
   - "human resources generalist"
   - "HR generalist"
   - "generalista de recursos humanos"
   - "HR operations"
-  - "responsable de recursos humanos"
-  - "people manager"
+  - "labour relations"
+  - "relaciones laborales"
+  - "analista de recursos humanos"
+  - "HR analyst"
   - "people operations"
   - "HRBP"
 work_mode:
@@ -24,6 +27,8 @@ skills:
   - onboarding
   - labor law Spain
   - payroll
+  - off boarding
+  - termination
   - HRIS
 industries_preferred:
   - tech

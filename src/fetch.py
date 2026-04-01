@@ -25,51 +25,61 @@ def load_seen_urls():
 
 
 def fetch_jobspy(search_terms, location="Spain"):
+    # infojobs is not supported by jobspy; it can be added later via the Adzuna API
+    sites = ["indeed", "linkedin"]
     results = []
+
     for term in search_terms:
-        try:
-            df = scrape_jobs(
-                # infojobs is not supported by jobspy; it can be added later via the Adzuna API
-                site_name=["indeed", "linkedin"],
-                search_term=term,
-                location=location,
-                results_wanted=50,
-                hours_old=24,
-            )
-            for _, row in df.iterrows():
-                url = row.get("job_url") or row.get("url") or ""
-                if not url:
+        for site in sites:
+            try:
+                df = scrape_jobs(
+                    site_name=[site],
+                    search_term=term,
+                    location=location,
+                    results_wanted=50,
+                    hours_old=24,
+                )
+                count = len(df) if df is not None else 0
+                if count == 0:
+                    print(f"  [jobspy:{site}] 0 results for '{term}' — site may be blocking scraping")
                     continue
-                date_posted = row.get("date_posted")
-                if isinstance(date_posted, datetime):
-                    date_posted = date_posted.date().isoformat()
-                elif date_posted is not None:
-                    date_posted = str(date_posted)
-                results.append({
-                    "title": str(row.get("title") or ""),
-                    "company": str(row.get("company") or ""),
-                    "location": str(row.get("location") or ""),
-                    "description": str(row.get("description") or ""),
-                    "url": url,
-                    "source": str(row.get("site") or "jobspy"),
-                    "date_posted": date_posted,
-                })
-        except Exception as e:
-            print(f"[jobspy] Error fetching '{term}': {e}")
+                print(f"  [jobspy:{site}] {count} results for '{term}'")
+                for _, row in df.iterrows():
+                    url = row.get("job_url") or row.get("url") or ""
+                    if not url:
+                        continue
+                    date_posted = row.get("date_posted")
+                    if isinstance(date_posted, datetime):
+                        date_posted = date_posted.date().isoformat()
+                    elif date_posted is not None:
+                        date_posted = str(date_posted)
+                    results.append({
+                        "title": str(row.get("title") or ""),
+                        "company": str(row.get("company") or ""),
+                        "location": str(row.get("location") or ""),
+                        "description": str(row.get("description") or ""),
+                        "url": url,
+                        "source": str(row.get("site") or site),
+                        "date_posted": date_posted,
+                    })
+            except Exception as e:
+                print(f"  [jobspy:{site}] Error fetching '{term}': {e}")
+
     return results
 
 
-def fetch_adzuna(search_terms, location="Spain"):
+def fetch_adzuna(search_terms, location="Spain", country="es"):
     app_id = os.getenv("ADZUNA_APP_ID")
     app_key = os.getenv("ADZUNA_API_KEY")
     if not app_id or not app_key:
+        print("  [adzuna] Skipping — ADZUNA_APP_ID or ADZUNA_API_KEY not set in .env")
         return []
 
     results = []
     for term in search_terms:
         try:
             response = requests.get(
-                "https://api.adzuna.com/v1/api/jobs/es/search/1",
+                f"https://api.adzuna.com/v1/api/jobs/{country}/search/1",
                 params={
                     "app_id": app_id,
                     "app_key": app_key,
@@ -81,7 +91,9 @@ def fetch_adzuna(search_terms, location="Spain"):
                 timeout=10,
             )
             response.raise_for_status()
-            for job in response.json().get("results", []):
+            jobs = response.json().get("results", [])
+            print(f"  [adzuna] {len(jobs)} results for '{term}'")
+            for job in jobs:
                 url = job.get("redirect_url") or ""
                 if not url:
                     continue
@@ -97,7 +109,7 @@ def fetch_adzuna(search_terms, location="Spain"):
                     "date_posted": date_posted,
                 })
         except Exception as e:
-            print(f"[adzuna] Error fetching '{term}': {e}")
+            print(f"  [adzuna] Error fetching '{term}': {e}")
     return results
 
 
@@ -116,12 +128,14 @@ def fetch_new_jobs():
     search_terms = config.get("search_terms", [])
     location = config.get("location", "Spain")
 
+    country = config.get("country", "es")
+
     jobspy_results = fetch_jobspy(search_terms, location)
-    adzuna_results = fetch_adzuna(search_terms, location)
+    adzuna_results = fetch_adzuna(search_terms, location, country)
 
     indeed_count = sum(1 for j in jobspy_results if j.get("source") == "indeed")
     linkedin_count = sum(1 for j in jobspy_results if j.get("source") == "linkedin")
-    print(f"  LinkedIn: {linkedin_count} jobs, Indeed: {indeed_count} jobs, Adzuna: {len(adzuna_results)} jobs")
+    print(f"  Total — LinkedIn: {linkedin_count}, Indeed: {indeed_count}, Adzuna: {len(adzuna_results)}")
 
     all_jobs = deduplicate(jobspy_results + adzuna_results)
 

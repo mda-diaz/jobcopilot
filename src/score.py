@@ -14,10 +14,11 @@ def load_config():
         return yaml.safe_load(f)
 
 
-def build_prompt(profile_str, job):
+def build_prompt(profile_str, work_mode_str, job):
     description = (job.get("description") or "")[:2000]
     user_content = f"""USER PROFILE:
 {profile_str}
+Preferred work mode: {work_mode_str}
 
 JOB:
 Title: {job.get("title", "")}
@@ -37,9 +38,9 @@ Respond ONLY in this JSON format:
     return user_content
 
 
-def call_llm(profile_str, job):
+def call_llm(profile_str, work_mode_str, job):
     system = "You are a career advisor evaluating job fit. Respond only in valid JSON."
-    user_content = build_prompt(profile_str, job)
+    user_content = build_prompt(profile_str, work_mode_str, job)
 
     openai_key = os.getenv("OPENAI_API_KEY")
     if not openai_key:
@@ -71,23 +72,40 @@ def parse_response(raw):
         return {"score": 0, "reason": "parse error", "flags": []}
 
 
+ON_SITE_PENALTIES = ["presencial", "100% on-site"]
+
+
+def apply_penalties(job, score, flags):
+    description = (job.get("description") or "").lower()
+    title = (job.get("title") or "").lower()
+    for phrase in ON_SITE_PENALTIES:
+        if phrase in description or phrase in title:
+            if score > 40:
+                flags = list(flags) + [f"On-site penalty: '{phrase}' detected — score capped at 40"]
+                score = 40
+            break
+    return score, flags
+
+
 def score_jobs(jobs):
     config = load_config()
     profile_str = yaml.dump(config, allow_unicode=True)
+    work_mode_str = " or ".join(config.get("work_mode", ["remote", "hybrid"]))
     min_score = config.get("min_score", 60)
 
     scored = []
     for job in jobs:
         try:
-            raw = call_llm(profile_str, job)
+            raw = call_llm(profile_str, work_mode_str, job)
             result = parse_response(raw)
         except Exception as e:
             print(f"[score] Error scoring '{job.get('title')}' at '{job.get('company')}': {e}")
             result = {"score": 0, "reason": "scoring error", "flags": []}
 
-        job["score"] = int(result.get("score", 0))
+        score, flags = apply_penalties(job, int(result.get("score", 0)), result.get("flags", []))
+        job["score"] = score
         job["reason"] = result.get("reason", "")
-        job["flags"] = result.get("flags", [])
+        job["flags"] = flags
         scored.append(job)
 
     scored.sort(key=lambda j: j["score"], reverse=True)
