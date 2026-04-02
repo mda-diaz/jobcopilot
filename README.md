@@ -1,6 +1,6 @@
 # jobcopilot
 
-A daily job search copilot for the Spanish market. Run it in the morning, get a ranked list of HR jobs with a tailored CV for each top role — so you know exactly what to apply to today.
+A daily job search copilot. Run it in the morning, get a ranked list of HR jobs with a tailored CV for each top role — so you know exactly what to apply to today.
 
 ---
 
@@ -16,7 +16,7 @@ What eats your time isn't applying — it's the daily triage: scanning listings,
 
 Runs a pipeline that:
 
-1. Fetches jobs from the last 24–72 hours across Indeed, LinkedIn, and Adzuna (Spain)
+1. Fetches jobs from the last 24–72 hours across Indeed, LinkedIn, and Adzuna
 2. Scores each job 0–100 against your profile — skills, seniority, work mode, deal-breakers
 3. Filters to the top 5 and skips anything you've already seen
 4. Rewrites your CV summary and key bullets for the top 3 roles
@@ -30,11 +30,11 @@ It does **not** auto-apply. That's deliberate — mass applications hurt more th
 
 ## Job sources
 
-| Source | Status | Notes |
-|--------|--------|-------|
-| Indeed | ✅ Active | Via jobspy, Spain |
-| LinkedIn | ✅ Active | Via jobspy, results vary |
-| Adzuna | ✅ Active | Requires free API key, aggregates Spanish boards |
+| Source | Status |
+|--------|--------|
+| Indeed | ✅ Active |
+| LinkedIn | ✅ Active | 
+| Adzuna | ✅ Active |
 
 ---
 
