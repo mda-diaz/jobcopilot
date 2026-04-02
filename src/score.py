@@ -109,7 +109,7 @@ def score_jobs(jobs):
         scored.append(job)
 
     scored.sort(key=lambda j: j["score"], reverse=True)
-    return [j for j in scored if j["score"] >= min_score]
+    return scored, min_score
 
 
 def main():

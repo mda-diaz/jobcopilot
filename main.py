@@ -52,14 +52,15 @@ def main():
     # ── Step 2: Score ────────────────────────────────────────────────────────
     print("\nScoring jobs...")
     try:
-        scored = score.score_jobs(jobs)
-        print(f"{len(scored)} jobs above minimum score")
+        scored, min_score = score.score_jobs(jobs)
+        above = [j for j in scored if j["score"] >= min_score]
+        print(f"{len(scored)} jobs scored, {len(above)} above minimum score ({min_score})")
     except Exception as e:
         print(f"[ERROR] Scoring step failed: {e}")
         return
 
     # ── Step 3: Tailor CVs for top 3 ────────────────────────────────────────
-    top_jobs = scored[:5]
+    top_jobs = above[:5]
     print("\nTailoring CVs for top 3 jobs...")
     cv_paths = []
     for job in top_jobs[:3]:
@@ -74,7 +75,7 @@ def main():
     print("\nBuilding digest...")
     try:
         digest_path, csv_path = digest.create_digest(
-            top_jobs, cv_paths, total_jobs_fetched=len(jobs), all_scored_jobs=scored
+            top_jobs, cv_paths, total_jobs_fetched=len(jobs), all_scored_jobs=scored  # scored = ALL jobs
         )
         print(f"Digest saved to {digest_path}")
         print(f"CSV saved to {csv_path}")
