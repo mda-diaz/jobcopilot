@@ -234,6 +234,53 @@ def filter_language(jobs):
     return filtered
 
 
+UNSUPPORTED_LANGUAGES = [
+    "russian", "ruso", "fluent in russian",
+    "german", "alemán", "deutsch", "fluent in german",
+    "french", "francés", "français", "fluent in french",
+    "italian", "italiano", "fluent in italian",
+    "native portuguese", "fluent portuguese required",
+    "dutch", "holandés", "fluent in dutch",
+    "mandarin", "chinese", "cantonese",
+]
+
+REQUIREMENT_SIGNALS = [
+    "required", "must", "fluent", "native", "proficiency required",
+    "mandatory", "essential", "obligatorio", "imprescindible", "requerido",
+]
+
+NICE_TO_HAVE_SIGNALS = [
+    "a plus", "nice to have", "bonus", "preferred",
+    "valorable", "se valorará", "deseable",
+]
+
+
+def has_unsupported_language_requirement(text):
+    """Returns True if the job requires a language other than English or Spanish."""
+    text_lower = text.lower()
+    nice_to_have = any(phrase in text_lower for phrase in NICE_TO_HAVE_SIGNALS)
+    if nice_to_have:
+        return False
+    for lang in UNSUPPORTED_LANGUAGES:
+        if lang in text_lower:
+            if any(signal in text_lower for signal in REQUIREMENT_SIGNALS):
+                return True
+    return False
+
+
+def filter_language_requirements(jobs):
+    filtered = []
+    removed = 0
+    for job in jobs:
+        text = job.get("title", "") + " " + job.get("description", "")
+        if has_unsupported_language_requirement(text):
+            removed += 1
+        else:
+            filtered.append(job)
+    print(f"  Language requirement filter removed {removed} jobs, {len(filtered)} remaining")
+    return filtered
+
+
 def fetch_new_jobs():
     config = load_config()
     search_terms = config.get("search_terms", [])
@@ -258,6 +305,7 @@ def fetch_new_jobs():
     all_jobs = deduplicate(jobspy_results + remote_results + adzuna_results)
     all_jobs = filter_location(all_jobs)
     all_jobs = filter_language(all_jobs)
+    all_jobs = filter_language_requirements(all_jobs)
     all_jobs = tag_remote(all_jobs, remote_urls)
 
     seen_urls = load_seen_urls()
