@@ -160,23 +160,30 @@ def deduplicate(jobs):
 
 def tag_remote(jobs, remote_urls):
     """Add a 'remote' boolean field to each job."""
-    remote_keywords = ["remote", "remoto", "teletrabajo", "telework"]
     for job in jobs:
         in_remote_search = job["url"] in remote_urls
         text = (job.get("title", "") + " " + job.get("description", "")).lower()
-        has_keyword = any(kw in text for kw in remote_keywords)
+        has_keyword = any(s in text for s in REMOTE_SIGNALS)
         job["remote"] = in_remote_search or has_keyword
     return jobs
 
 
-SPAIN_LOCATIONS = [
-    "spain", "españa", "madrid", "barcelona", "valencia", "sevilla",
-    "bilbao", "málaga", "malaga", "zaragoza",
+REMOTE_SIGNALS = [
+    "remote", "remoto", "teletrabajo", "full remote", "trabajo remoto",
+    "remote europe", "remote emea", "desde casa", "100% remote",
 ]
 
-REMOTE_KEYWORDS = [
-    "remote", "remoto", "trabajo remoto", "full remote",
-    "remote europe", "remote emea", "work from anywhere",
+NON_SPAIN = [
+    "united kingdom", "uk,", ", uk", "london", "edinburgh", "manchester",
+    "germany", "deutschland", "berlin", "munich", "münchen",
+    "france", "paris", "lyon",
+    "netherlands", "amsterdam",
+    "italy", "rome", "milan", "milano",
+    "portugal", "lisbon", "lisboa",
+    "united states", "usa", "new york", "san francisco",
+    "russia", "moscow",
+    "poland", "warsaw",
+    "romania", "bucharest",
 ]
 
 
@@ -184,17 +191,21 @@ def filter_location(jobs):
     filtered = []
     removed = 0
     for job in jobs:
-        location = (job.get("location") or "").lower()
+        location = (job.get("location") or "").lower().strip()
         text = (job.get("title", "") + " " + job.get("description", "")).lower()
 
-        is_spain = any(s in location for s in SPAIN_LOCATIONS)
-        is_remote = any(kw in text for kw in REMOTE_KEYWORDS)
-        no_location = not location.strip()
+        no_location = not location or location == "unknown"
+        is_spain = "spain" in location or "españa" in location
+        location_is_remote = "remote" in location or "remoto" in location or "teletrabajo" in location
+        text_is_remote = any(s in text for s in REMOTE_SIGNALS)
 
-        if is_spain or is_remote or no_location:
+        if no_location or is_spain or location_is_remote or text_is_remote:
             filtered.append(job)
-        else:
+        elif any(place in location for place in NON_SPAIN):
             removed += 1
+        else:
+            # Unknown foreign location but no remote signals — keep, let scoring decide
+            filtered.append(job)
 
     print(f"  Location filter removed {removed} jobs, {len(filtered)} remaining")
     return filtered
