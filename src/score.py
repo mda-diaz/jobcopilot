@@ -20,14 +20,22 @@ def build_prompt(profile_str, work_mode_str, job):
 {profile_str}
 Preferred work mode: {work_mode_str}
 
+WORK MODE RULES:
+- User accepts: Spain-based (any city), remote from anywhere in Europe
+- If job is fully remote and open to European candidates: do not penalize for location
+- If job requires presence in a specific non-Spanish city with no remote option: apply -20 score penalty
+- If job description mentions "remote", "remoto", "full remote", or "work from anywhere in Europe": treat location as Spain-compatible
+- "remote" or "remoto" in the title or description are positive signals: increase score by up to +10
+
 JOB:
 Title: {job.get("title", "")}
 Company: {job.get("company", "")}
 Location: {job.get("location", "")}
+Remote: {"yes" if job.get("remote") else "no"}
 Description: {description}
 
 Score this job from 0-100 based on fit with the profile.
-Consider: skills match, seniority, industry, location, work mode (remote/hybrid preferred), deal-breakers.
+Consider: skills match, seniority, industry, location, work mode, deal-breakers, and the work mode rules above.
 
 Respond ONLY in this JSON format:
 {{
@@ -73,17 +81,28 @@ def parse_response(raw):
 
 
 ON_SITE_PENALTIES = ["presencial", "100% on-site"]
+REMOTE_SIGNALS = ["remote", "remoto", "full remote", "work from anywhere", "teletrabajo"]
 
 
 def apply_penalties(job, score, flags):
+    flags = list(flags)
     description = (job.get("description") or "").lower()
     title = (job.get("title") or "").lower()
+    text = title + " " + description
+
+    # Hard cap for on-site deal-breakers
     for phrase in ON_SITE_PENALTIES:
-        if phrase in description or phrase in title:
+        if phrase in text:
             if score > 40:
-                flags = list(flags) + [f"On-site penalty: '{phrase}' detected — score capped at 40"]
+                flags.append(f"On-site penalty: '{phrase}' detected — score capped at 40")
                 score = 40
             break
+
+    # Remote bonus: +10 if already flagged remote or remote signal in text, cap at 100
+    is_remote = job.get("remote") or any(s in text for s in REMOTE_SIGNALS)
+    if is_remote and score <= 90:
+        score = min(score + 10, 100)
+
     return score, flags
 
 
