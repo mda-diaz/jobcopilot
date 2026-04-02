@@ -200,6 +200,40 @@ def filter_location(jobs):
     return filtered
 
 
+NON_EN_ES_INDICATORS = [
+    # German
+    "deutsch", "deutschkenntnisse", "deutschsprachig", "kenntnisse",
+    "stellenangebot", "bewerbung", "berufserfahrung", "vollzeit",
+    "teilzeit", "arbeitgeber", "sprachkenntnisse", "c2 deutsch",
+    "muttersprache deutsch", "fließend deutsch",
+    # French
+    "connaissance", "expérience", "entreprise", "poste", "candidature",
+    "compétences", "rejoindre", "rémunération", "diplôme",
+    # Italian
+    "esperienza", "azienda", "ricerca", "candidato", "offerta di lavoro",
+    "contratto", "laurea", "stipendio", "assunzione",
+]
+
+
+def is_english_or_spanish(text):
+    """Returns True if text appears to be in English or Spanish."""
+    text_lower = text.lower()
+    return not any(indicator in text_lower for indicator in NON_EN_ES_INDICATORS)
+
+
+def filter_language(jobs):
+    filtered = []
+    removed = 0
+    for job in jobs:
+        text = job.get("title", "") + " " + job.get("description", "")
+        if is_english_or_spanish(text):
+            filtered.append(job)
+        else:
+            removed += 1
+    print(f"  Language filter removed {removed} jobs, {len(filtered)} remaining")
+    return filtered
+
+
 def fetch_new_jobs():
     config = load_config()
     search_terms = config.get("search_terms", [])
@@ -223,6 +257,7 @@ def fetch_new_jobs():
 
     all_jobs = deduplicate(jobspy_results + remote_results + adzuna_results)
     all_jobs = filter_location(all_jobs)
+    all_jobs = filter_language(all_jobs)
     all_jobs = tag_remote(all_jobs, remote_urls)
 
     seen_urls = load_seen_urls()
