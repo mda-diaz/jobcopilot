@@ -169,12 +169,14 @@ def tag_remote(jobs, remote_urls):
     return jobs
 
 
-# Patterns that indicate a non-Spain location — filtered out before scoring
-NON_SPAIN_PATTERNS = [
-    ", US", ", USA", "United States", ", CA", ", TX", ", NY", ", FL",
-    ", WA", ", MA", ", IL", ", GA", ", CO", ", NM", ", AZ", ", OH",
-    "Albuquerque", "New Mexico", "United Kingdom", ", UK", "Deutschland",
-    "France", "Italy", "Netherlands", "Poland", "Romania", "India",
+SPAIN_LOCATIONS = [
+    "spain", "españa", "madrid", "barcelona", "valencia", "sevilla",
+    "bilbao", "málaga", "malaga", "zaragoza",
+]
+
+REMOTE_KEYWORDS = [
+    "remote", "remoto", "trabajo remoto", "full remote",
+    "remote europe", "remote emea", "work from anywhere",
 ]
 
 
@@ -182,14 +184,19 @@ def filter_location(jobs):
     filtered = []
     removed = 0
     for job in jobs:
-        location = job.get("location") or ""
-        # Allow jobs with no location or explicitly remote — they may be valid
-        if location and any(p.lower() in location.lower() for p in NON_SPAIN_PATTERNS):
+        location = (job.get("location") or "").lower()
+        text = (job.get("title", "") + " " + job.get("description", "")).lower()
+
+        is_spain = any(s in location for s in SPAIN_LOCATIONS)
+        is_remote = any(kw in text for kw in REMOTE_KEYWORDS)
+        no_location = not location.strip()
+
+        if is_spain or is_remote or no_location:
+            filtered.append(job)
+        else:
             removed += 1
-            continue
-        filtered.append(job)
-    if removed:
-        print(f"  Removed {removed} jobs with non-Spain locations")
+
+    print(f"  Location filter removed {removed} jobs, {len(filtered)} remaining")
     return filtered
 
 
