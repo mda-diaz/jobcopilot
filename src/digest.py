@@ -53,7 +53,7 @@ def save_csv(all_scored_jobs):
     DIGESTS_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
     output_path = DIGESTS_DIR / f"jobs_{today}.csv"
-    fields = ["rank", "title", "company", "location", "score", "reason", "flags", "url", "source", "date_posted"]
+    fields = ["rank", "title", "company", "location", "remote", "score", "reason", "flags", "url", "source", "date_posted"]
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
@@ -63,6 +63,7 @@ def save_csv(all_scored_jobs):
                 "title": job.get("title", ""),
                 "company": job.get("company", ""),
                 "location": job.get("location", ""),
+                "remote": "yes" if job.get("remote") else "no",
                 "score": job.get("score", 0),
                 "reason": job.get("reason", ""),
                 "flags": " | ".join(job.get("flags") or []),

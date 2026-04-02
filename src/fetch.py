@@ -24,6 +24,30 @@ def load_seen_urls():
     return {job["url"] for job in seen if job.get("url")}
 
 
+def _parse_jobspy_df(df, site):
+    """Convert a jobspy DataFrame to a list of job dicts."""
+    jobs = []
+    for _, row in df.iterrows():
+        url = row.get("job_url") or row.get("url") or ""
+        if not url:
+            continue
+        date_posted = row.get("date_posted")
+        if isinstance(date_posted, datetime):
+            date_posted = date_posted.date().isoformat()
+        elif date_posted is not None:
+            date_posted = str(date_posted)
+        jobs.append({
+            "title": str(row.get("title") or ""),
+            "company": str(row.get("company") or ""),
+            "location": str(row.get("location") or ""),
+            "description": str(row.get("description") or ""),
+            "url": url,
+            "source": str(row.get("site") or site),
+            "date_posted": date_posted,
+        })
+    return jobs
+
+
 def fetch_jobspy(search_terms, location="Spain"):
     # infojobs is not supported by jobspy; it can be added later via the Adzuna API
     sites = ["indeed", "linkedin"]
@@ -38,32 +62,43 @@ def fetch_jobspy(search_terms, location="Spain"):
                     location=location,
                     results_wanted=50,
                     hours_old=24,
+                    linkedin_fetch_description=True,
                 )
                 count = len(df) if df is not None else 0
                 if count == 0:
                     print(f"  [jobspy:{site}] 0 results for '{term}' — site may be blocking scraping")
                     continue
                 print(f"  [jobspy:{site}] {count} results for '{term}'")
-                for _, row in df.iterrows():
-                    url = row.get("job_url") or row.get("url") or ""
-                    if not url:
-                        continue
-                    date_posted = row.get("date_posted")
-                    if isinstance(date_posted, datetime):
-                        date_posted = date_posted.date().isoformat()
-                    elif date_posted is not None:
-                        date_posted = str(date_posted)
-                    results.append({
-                        "title": str(row.get("title") or ""),
-                        "company": str(row.get("company") or ""),
-                        "location": str(row.get("location") or ""),
-                        "description": str(row.get("description") or ""),
-                        "url": url,
-                        "source": str(row.get("site") or site),
-                        "date_posted": date_posted,
-                    })
+                results.extend(_parse_jobspy_df(df, site))
             except Exception as e:
                 print(f"  [jobspy:{site}] Error fetching '{term}': {e}")
+
+    return results
+
+
+def fetch_jobspy_remote(search_terms):
+    """Second pass: LinkedIn-only, Europe-wide, remote filter."""
+    results = []
+
+    for term in search_terms:
+        try:
+            df = scrape_jobs(
+                site_name=["linkedin"],
+                search_term=term,
+                location="Europe",
+                results_wanted=50,
+                hours_old=24,
+                is_remote=True,
+                linkedin_fetch_description=True,
+            )
+            count = len(df) if df is not None else 0
+            if count == 0:
+                print(f"  [jobspy:linkedin:remote] 0 results for '{term}'")
+                continue
+            print(f"  [jobspy:linkedin:remote] {count} results for '{term}'")
+            results.extend(_parse_jobspy_df(df, "linkedin"))
+        except Exception as e:
+            print(f"  [jobspy:linkedin:remote] Error fetching '{term}': {e}")
 
     return results
 
@@ -123,6 +158,17 @@ def deduplicate(jobs):
     return unique
 
 
+def tag_remote(jobs, remote_urls):
+    """Add a 'remote' boolean field to each job."""
+    remote_keywords = ["remote", "remoto", "teletrabajo", "telework"]
+    for job in jobs:
+        in_remote_search = job["url"] in remote_urls
+        text = (job.get("title", "") + " " + job.get("description", "")).lower()
+        has_keyword = any(kw in text for kw in remote_keywords)
+        job["remote"] = in_remote_search or has_keyword
+    return jobs
+
+
 # Patterns that indicate a non-Spain location — filtered out before scoring
 NON_SPAIN_PATTERNS = [
     ", US", ", USA", "United States", ", CA", ", TX", ", NY", ", FL",
@@ -137,7 +183,8 @@ def filter_location(jobs):
     removed = 0
     for job in jobs:
         location = job.get("location") or ""
-        if any(p.lower() in location.lower() for p in NON_SPAIN_PATTERNS):
+        # Allow jobs with no location or explicitly remote — they may be valid
+        if location and any(p.lower() in location.lower() for p in NON_SPAIN_PATTERNS):
             removed += 1
             continue
         filtered.append(job)
@@ -150,18 +197,26 @@ def fetch_new_jobs():
     config = load_config()
     search_terms = config.get("search_terms", [])
     location = config.get("location", "Spain")
-
     country = config.get("country", "es")
 
+    print("Scraping Spain-based listings...")
     jobspy_results = fetch_jobspy(search_terms, location)
+
+    print("Scraping Europe-wide remote listings...")
+    remote_results = fetch_jobspy_remote(search_terms)
+    remote_urls = {j["url"] for j in remote_results}
+
+    print("Fetching from Adzuna...")
     adzuna_results = fetch_adzuna(search_terms, location, country)
 
     indeed_count = sum(1 for j in jobspy_results if j.get("source") == "indeed")
     linkedin_count = sum(1 for j in jobspy_results if j.get("source") == "linkedin")
-    print(f"  Total — LinkedIn: {linkedin_count}, Indeed: {indeed_count}, Adzuna: {len(adzuna_results)}")
+    print(f"  Total — LinkedIn: {linkedin_count}, Indeed: {indeed_count}, "
+          f"LinkedIn remote: {len(remote_results)}, Adzuna: {len(adzuna_results)}")
 
-    all_jobs = deduplicate(jobspy_results + adzuna_results)
+    all_jobs = deduplicate(jobspy_results + remote_results + adzuna_results)
     all_jobs = filter_location(all_jobs)
+    all_jobs = tag_remote(all_jobs, remote_urls)
 
     seen_urls = load_seen_urls()
     new_jobs = [job for job in all_jobs if job["url"] not in seen_urls]
@@ -172,6 +227,8 @@ def fetch_new_jobs():
 def main():
     new_jobs = fetch_new_jobs()
     print(f"New jobs found: {len(new_jobs)}")
+    remote_count = sum(1 for j in new_jobs if j.get("remote"))
+    print(f"  of which remote/hybrid: {remote_count}")
 
 
 if __name__ == "__main__":
