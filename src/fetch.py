@@ -123,6 +123,29 @@ def deduplicate(jobs):
     return unique
 
 
+# Patterns that indicate a non-Spain location — filtered out before scoring
+NON_SPAIN_PATTERNS = [
+    ", US", ", USA", "United States", ", CA", ", TX", ", NY", ", FL",
+    ", WA", ", MA", ", IL", ", GA", ", CO", ", NM", ", AZ", ", OH",
+    "Albuquerque", "New Mexico", "United Kingdom", ", UK", "Deutschland",
+    "France", "Italy", "Netherlands", "Poland", "Romania", "India",
+]
+
+
+def filter_location(jobs):
+    filtered = []
+    removed = 0
+    for job in jobs:
+        location = job.get("location") or ""
+        if any(p.lower() in location.lower() for p in NON_SPAIN_PATTERNS):
+            removed += 1
+            continue
+        filtered.append(job)
+    if removed:
+        print(f"  Removed {removed} jobs with non-Spain locations")
+    return filtered
+
+
 def fetch_new_jobs():
     config = load_config()
     search_terms = config.get("search_terms", [])
@@ -138,6 +161,7 @@ def fetch_new_jobs():
     print(f"  Total — LinkedIn: {linkedin_count}, Indeed: {indeed_count}, Adzuna: {len(adzuna_results)}")
 
     all_jobs = deduplicate(jobspy_results + adzuna_results)
+    all_jobs = filter_location(all_jobs)
 
     seen_urls = load_seen_urls()
     new_jobs = [job for job in all_jobs if job["url"] not in seen_urls]
