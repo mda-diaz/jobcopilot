@@ -49,21 +49,26 @@ def _parse_jobspy_df(df, site):
 
 
 def fetch_jobspy(search_terms, location="Spain"):
-    # infojobs is not supported by jobspy; it can be added later via the Adzuna API
-    sites = ["indeed", "linkedin"]
+    # Google Jobs aggregates InfoJobs and other Spanish boards, covering them without a separate API
+    sites = ["indeed", "linkedin", "glassdoor", "google"]
     results = []
 
     for term in search_terms:
         for site in sites:
             try:
-                df = scrape_jobs(
+                kwargs = dict(
                     site_name=[site],
                     search_term=term,
                     location=location,
                     results_wanted=50,
                     hours_old=24,
                     linkedin_fetch_description=True,
+                    country_indeed="spain",
                 )
+                if site == "google":
+                    kwargs["google_search_term"] = f"{term} jobs Spain"
+
+                df = scrape_jobs(**kwargs)
                 count = len(df) if df is not None else 0
                 if count == 0:
                     print(f"  [jobspy:{site}] 0 results for '{term}' — site may be blocking scraping")
