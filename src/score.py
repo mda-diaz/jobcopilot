@@ -80,6 +80,22 @@ def parse_response(raw):
         return {"score": 0, "reason": "parse error", "flags": []}
 
 
+HR_TITLE_KEYWORDS = [
+    "human resources", "recursos humanos", "hr ", " hr", "hrbp",
+    "people", "talent", "talento", "rrhh", "relaciones laborales",
+    "labour", "labor", "payroll", "nóminas", "nominas",
+    "onboarding", "recruiting", "reclutamiento", "people ops",
+    "people partner", "hr manager", "hr generalist", "hr analyst",
+    "hr operations", "hr director", "hr coordinator",
+    "generalista", "analista de personas", "gestión de personas",
+]
+
+
+def is_hr_relevant(title):
+    title_lower = title.lower()
+    return any(kw in title_lower for kw in HR_TITLE_KEYWORDS)
+
+
 ON_SITE_PENALTIES = ["presencial", "100% on-site"]
 REMOTE_SIGNALS = ["remote", "remoto", "full remote", "work from anywhere", "teletrabajo"]
 
@@ -113,7 +129,17 @@ def score_jobs(jobs):
     min_score = config.get("min_score", 60)
 
     scored = []
+    title_rejected = 0
+
     for job in jobs:
+        if not is_hr_relevant(job.get("title", "")):
+            job["score"] = 0
+            job["reason"] = "Job title not related to HR"
+            job["flags"] = ["irrelevant role"]
+            scored.append(job)
+            title_rejected += 1
+            continue
+
         try:
             raw = call_llm(profile_str, work_mode_str, job)
             result = parse_response(raw)
@@ -127,6 +153,7 @@ def score_jobs(jobs):
         job["flags"] = flags
         scored.append(job)
 
+    print(f"  Title filter rejected {title_rejected} jobs before LLM scoring")
     scored.sort(key=lambda j: j["score"], reverse=True)
     return scored, min_score
 
