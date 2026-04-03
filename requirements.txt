@@ -6,3 +6,4 @@ python-dotenv
 pyyaml
 jinja2
 requests
+beautifulsoup4
