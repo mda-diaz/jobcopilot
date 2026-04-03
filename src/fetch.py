@@ -50,7 +50,8 @@ def _parse_jobspy_df(df, site):
 
 def fetch_jobspy(search_terms, location="Spain"):
     # Google Jobs aggregates InfoJobs and other Spanish boards, covering them without a separate API
-    sites = ["indeed", "linkedin", "glassdoor", "google"]
+    # Glassdoor excluded — returns 400 errors for Spanish locations
+    sites = ["indeed", "linkedin", "google"]
     results = []
 
     for term in search_terms:
