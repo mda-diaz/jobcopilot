@@ -50,8 +50,7 @@ def _parse_jobspy_df(df, site):
 
 def fetch_jobspy(search_terms, location="Spain"):
     # Google Jobs aggregates InfoJobs and other Spanish boards, covering them without a separate API
-    # Glassdoor excluded — returns 400 errors for Spanish locations
-    sites = ["indeed", "linkedin", "google"]
+    sites = ["indeed", "linkedin", "glassdoor", "google"]
     results = []
 
     for term in search_terms:
@@ -67,7 +66,9 @@ def fetch_jobspy(search_terms, location="Spain"):
                     country_indeed="spain",
                 )
                 if site == "google":
-                    kwargs["google_search_term"] = f"{term} jobs Spain"
+                    kwargs["google_search_term"] = (
+                        f"{term} Spain site:infojobs.net OR site:linkedin.com OR site:indeed.com"
+                    )
 
                 df = scrape_jobs(**kwargs)
                 count = len(df) if df is not None else 0
@@ -154,6 +155,25 @@ def fetch_adzuna(search_terms, location="Spain", country="es"):
     return results
 
 
+BLOCKED_DOMAINS = [
+    "trabajo.org",
+    "es.trabajo.org",
+]
+
+
+def filter_blocked_sources(jobs):
+    filtered = []
+    removed = 0
+    for job in jobs:
+        url = job.get("url") or ""
+        if any(blocked in url for blocked in BLOCKED_DOMAINS):
+            removed += 1
+        else:
+            filtered.append(job)
+    print(f"  Blocked {removed} jobs from low quality sources")
+    return filtered
+
+
 def deduplicate(jobs):
     seen = set()
     unique = []
@@ -176,11 +196,32 @@ def tag_remote(jobs, remote_urls):
 
 REMOTE_SIGNALS = [
     "remote", "remoto", "teletrabajo", "full remote", "trabajo remoto",
-    "remote europe", "remote emea", "desde casa", "100% remote",
+    "remote europe", "remote emea", "work from anywhere", "desde casa",
+    "100% remote", "fully remote",
 ]
 
-NON_SPAIN = [
-    "united kingdom", "uk,", ", uk", "london", "edinburgh", "manchester",
+SPAIN_SIGNALS = [
+    "spain", "españa",
+    # Provinces / major cities
+    "madrid", "barcelona", "valencia", "sevilla", "seville", "zaragoza",
+    "málaga", "malaga", "murcia", "palma", "las palmas", "bilbao",
+    "alicante", "córdoba", "cordoba", "valladolid", "vigo", "gijón",
+    "gijon", "vitoria", "granada", "elche", "oviedo", "badalona",
+    "cartagena", "sabadell", "terrassa", "jerez", "santa cruz de tenerife",
+    "pamplona", "almería", "almeria", "fuenlabrada", "leganés", "leganes",
+    "alcalá de henares", "alcala de henares", "burgos", "albacete",
+    "getafe", "salamanca", "huelva", "logroño", "logrono", "badajoz",
+    "tarragona", "lleida", "girona", "castellón", "castellon", "marbella",
+    "cantabria", "asturias", "galicia", "cataluña", "catalonia",
+    "país vasco", "pais vasco", "euskadi", "andalucía", "andalucia",
+    "comunidad de madrid", "comunidad valenciana", "navarra", "aragón",
+    "aragon", "extremadura", "castilla", "canarias", "canary islands",
+    "baleares", "balearic islands", "la rioja", "murcia",
+]
+
+NON_SPAIN_COUNTRIES = [
+    "united kingdom", "uk,", ", uk", "england", "scotland", "wales",
+    "london", "edinburgh", "manchester", "birmingham", "leeds",
     "germany", "deutschland", "berlin", "munich", "münchen",
     "france", "paris", "lyon",
     "netherlands", "amsterdam",
@@ -192,28 +233,68 @@ NON_SPAIN = [
     "romania", "bucharest",
 ]
 
+# Phrases in the description that mean "you must physically be in country X"
+NON_SPAIN_RESIDENCY_SIGNALS = [
+    "based in germany", "based in uk", "based in france", "based in the uk",
+    "based in netherlands", "based in italy", "based in portugal",
+    "based in the netherlands", "based in united states", "based in the us",
+    "must be located in", "must reside in", "you must live in",
+    "residency in", "german residency", "uk residency",
+    "right to work in germany", "right to work in uk",
+    "right to work in the uk", "work permit germany", "work permit uk",
+    "arbeiten in", "ubicado en alemania", "con sede en", "radicado en",
+]
+
 
 def filter_location(jobs):
+    passed_spain = 0
+    passed_remote = 0
+    passed_unknown = 0
+    rejected_onsite = 0
+    rejected_restricted_remote = 0
+
     filtered = []
-    removed = 0
     for job in jobs:
         location = (job.get("location") or "").lower().strip()
-        text = (job.get("title", "") + " " + job.get("description", "")).lower()
+        desc = (job.get("description") or "").lower()
+        text = (job.get("title") or "").lower() + " " + desc
 
-        no_location = not location or location == "unknown"
-        is_spain = "spain" in location or "españa" in location
-        location_is_remote = "remote" in location or "remoto" in location or "teletrabajo" in location
-        text_is_remote = any(s in text for s in REMOTE_SIGNALS)
-
-        if no_location or is_spain or location_is_remote or text_is_remote:
+        # Condition C — empty / unknown location: pass through
+        if not location or location == "unknown":
+            passed_unknown += 1
             filtered.append(job)
-        elif any(place in location for place in NON_SPAIN):
-            removed += 1
+            continue
+
+        # Condition A — Spain-based:
+        # location contains a Spain signal AND no non-Spanish country in location
+        has_spain = any(s in location for s in SPAIN_SIGNALS)
+        has_non_spain_in_location = any(p in location for p in NON_SPAIN_COUNTRIES)
+        if has_spain and not has_non_spain_in_location:
+            passed_spain += 1
+            filtered.append(job)
+            continue
+
+        # Condition B — Genuinely remote-friendly:
+        # must have a remote signal in title/description AND no residency restriction
+        has_remote_signal = any(s in text for s in REMOTE_SIGNALS)
+        has_residency_restriction = any(p in desc for p in NON_SPAIN_RESIDENCY_SIGNALS)
+        if has_remote_signal and not has_residency_restriction:
+            passed_remote += 1
+            filtered.append(job)
+            continue
+
+        # Reject — determine which bucket
+        if has_remote_signal and has_residency_restriction:
+            rejected_restricted_remote += 1
         else:
-            # Unknown foreign location but no remote signals — keep, let scoring decide
-            filtered.append(job)
+            rejected_onsite += 1
 
-    print(f"  Location filter removed {removed} jobs, {len(filtered)} remaining")
+    print("  Location filter results:")
+    print(f"    Passed (Spain-based): {passed_spain}")
+    print(f"    Passed (remote, no country restriction): {passed_remote}")
+    print(f"    Passed (unknown location): {passed_unknown}")
+    print(f"    Rejected (onsite outside Spain): {rejected_onsite}")
+    print(f"    Rejected (remote but restricted to non-Spain country): {rejected_restricted_remote}")
     return filtered
 
 
@@ -314,12 +395,20 @@ def fetch_new_jobs():
     print("Fetching from Adzuna...")
     adzuna_results = fetch_adzuna(search_terms, location, country)
 
-    indeed_count = sum(1 for j in jobspy_results if j.get("source") == "indeed")
-    linkedin_count = sum(1 for j in jobspy_results if j.get("source") == "linkedin")
-    print(f"  Total — LinkedIn: {linkedin_count}, Indeed: {indeed_count}, "
-          f"LinkedIn remote: {len(remote_results)}, Adzuna: {len(adzuna_results)}")
+    def _count(jobs, source):
+        return sum(1 for j in jobs if j.get("source") == source)
+
+    print(
+        f"  Raw counts — LinkedIn: {_count(jobspy_results, 'linkedin')}, "
+        f"Indeed: {_count(jobspy_results, 'indeed')}, "
+        f"Glassdoor: {_count(jobspy_results, 'glassdoor')}, "
+        f"Google: {_count(jobspy_results, 'google')}, "
+        f"LinkedIn remote: {len(remote_results)}, "
+        f"Adzuna: {len(adzuna_results)}"
+    )
 
     all_jobs = deduplicate(jobspy_results + remote_results + adzuna_results)
+    all_jobs = filter_blocked_sources(all_jobs)
     all_jobs = filter_location(all_jobs)
     all_jobs = filter_language(all_jobs)
     all_jobs = filter_language_requirements(all_jobs)
@@ -327,6 +416,14 @@ def fetch_new_jobs():
 
     seen_urls = load_seen_urls()
     new_jobs = [job for job in all_jobs if job["url"] not in seen_urls]
+
+    sources = {}
+    for j in new_jobs:
+        src = j.get("source", "unknown")
+        sources[src] = sources.get(src, 0) + 1
+    print("  Post-filter source breakdown:")
+    for src, count in sorted(sources.items(), key=lambda x: -x[1]):
+        print(f"    {src}: {count}")
 
     return new_jobs
 

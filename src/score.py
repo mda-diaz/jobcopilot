@@ -27,6 +27,12 @@ WORK MODE RULES:
 - If job description mentions "remote", "remoto", "full remote", or "work from anywhere in Europe": treat location as Spain-compatible
 - "remote" or "remoto" in the title or description are positive signals: increase score by up to +10
 
+ROLE TYPE RULES:
+- User is an HR generalist/HRBP — they work IN HR, not managing payroll departments or leading payroll teams
+- If the role is primarily a Payroll Manager, Payroll Lead, or Head of Payroll, score it maximum 30 regardless of other factors
+- If the role requires managing a payroll team as main responsibility, apply -30 penalty
+- Payroll as a skill used in an HR generalist role is fine and should not be penalized
+
 JOB:
 Title: {job.get("title", "")}
 Company: {job.get("company", "")}
@@ -90,9 +96,15 @@ HR_TITLE_KEYWORDS = [
     "generalista", "analista de personas", "gestión de personas",
 ]
 
+HR_TITLE_REJECT_KEYWORDS = [
+    "payroll manager", "payroll lead", "head of payroll", "payroll team manager",
+]
+
 
 def is_hr_relevant(title):
     title_lower = title.lower()
+    if any(kw in title_lower for kw in HR_TITLE_REJECT_KEYWORDS):
+        return False
     return any(kw in title_lower for kw in HR_TITLE_KEYWORDS)
 
 
