@@ -202,6 +202,8 @@ REMOTE_SIGNALS = [
 
 SPAIN_SIGNALS = [
     "spain", "españa",
+    # Country code patterns (e.g. "Paterna, VC, ES" / "es, " prefix)
+    ", es", "es,", ", ES", "ES,",
     # Provinces / major cities
     "madrid", "barcelona", "valencia", "sevilla", "seville", "zaragoza",
     "málaga", "malaga", "murcia", "palma", "las palmas", "bilbao",
@@ -216,7 +218,13 @@ SPAIN_SIGNALS = [
     "país vasco", "pais vasco", "euskadi", "andalucía", "andalucia",
     "comunidad de madrid", "comunidad valenciana", "navarra", "aragón",
     "aragon", "extremadura", "castilla", "canarias", "canary islands",
-    "baleares", "balearic islands", "la rioja", "murcia",
+    "baleares", "balearic islands", "la rioja",
+    # Valencia metro area (Paterna, Sagunto, Torrent, etc.)
+    "paterna", "sagunto", "torrent", "burjassot", "mislata", "aldaia",
+    "manises", "quart de poblet", "xirivella", "catarroja", "alaquàs",
+    "alaquas", "paiporta", "sedaví", "sedavi", "picanya", "bétera",
+    "betera", "llíria", "llíria", "llíria", "gandia", "ontinyent",
+    "alzira", "sueca", "xàtiva", "xativa", "requena", "utiel",
 ]
 
 NON_SPAIN_COUNTRIES = [
@@ -252,6 +260,7 @@ def filter_location(jobs):
     passed_unknown = 0
     rejected_onsite = 0
     rejected_restricted_remote = 0
+    rejected_examples = []
 
     filtered = []
     for job in jobs:
@@ -286,8 +295,12 @@ def filter_location(jobs):
         # Reject — determine which bucket
         if has_remote_signal and has_residency_restriction:
             rejected_restricted_remote += 1
+            reason = "remote but residency-restricted"
         else:
             rejected_onsite += 1
+            reason = "onsite outside Spain"
+        if len(rejected_examples) < 3:
+            rejected_examples.append((job.get("title", ""), job.get("company", ""), job.get("location", ""), reason))
 
     print("  Location filter results:")
     print(f"    Passed (Spain-based): {passed_spain}")
@@ -295,6 +308,10 @@ def filter_location(jobs):
     print(f"    Passed (unknown location): {passed_unknown}")
     print(f"    Rejected (onsite outside Spain): {rejected_onsite}")
     print(f"    Rejected (remote but restricted to non-Spain country): {rejected_restricted_remote}")
+    if rejected_examples:
+        print("  Sample rejected jobs:")
+        for title, company, location, reason in rejected_examples:
+            print(f"    [{reason}] \"{title}\" @ {company} — {location}")
     return filtered
 
 
@@ -407,7 +424,10 @@ def fetch_new_jobs():
         f"Adzuna: {len(adzuna_results)}"
     )
 
+    raw_total = len(jobspy_results) + len(remote_results) + len(adzuna_results)
+    print(f"  Total raw (before dedup): {raw_total}")
     all_jobs = deduplicate(jobspy_results + remote_results + adzuna_results)
+    print(f"  After dedup: {len(all_jobs)}")
     all_jobs = filter_blocked_sources(all_jobs)
     all_jobs = filter_location(all_jobs)
     all_jobs = filter_language(all_jobs)

@@ -165,7 +165,11 @@ def score_jobs(jobs):
         job["flags"] = flags
         scored.append(job)
 
+    llm_scored = len(scored) - title_rejected
+    above_threshold = sum(1 for j in scored if j["score"] >= min_score)
     print(f"  Title filter rejected {title_rejected} jobs before LLM scoring")
+    print(f"  Jobs sent to LLM: {llm_scored}")
+    print(f"  Jobs above min_score ({min_score}): {above_threshold}")
     scored.sort(key=lambda j: j["score"], reverse=True)
     return scored, min_score
 
