@@ -189,16 +189,19 @@ def tag_remote(jobs, remote_urls):
     for job in jobs:
         in_remote_search = job["url"] in remote_urls
         text = (job.get("title", "") + " " + job.get("description", "")).lower()
-        has_keyword = any(s in text for s in REMOTE_SIGNALS)
+        has_keyword = any(s in text for s in REMOTE_TAG_SIGNALS)
         job["remote"] = in_remote_search or has_keyword
     return jobs
 
 
 REMOTE_SIGNALS = [
-    "remote", "remoto", "teletrabajo", "full remote", "trabajo remoto",
-    "remote europe", "remote emea", "work from anywhere", "desde casa",
-    "100% remote", "fully remote",
+    "remote europe", "remote emea", "work from anywhere",
+    "fully remote", "100% remote", "teletrabajo",
+    "trabajo remoto", "remoto", "desde casa",
+    "remote-first", "distributed team",
 ]
+
+REMOTE_TAG_SIGNALS = REMOTE_SIGNALS + ["remote", "full remote"]
 
 SPAIN_SIGNALS = [
     "spain", "españa",
@@ -227,91 +230,124 @@ SPAIN_SIGNALS = [
     "alzira", "sueca", "xàtiva", "xativa", "requena", "utiel",
 ]
 
-NON_SPAIN_COUNTRIES = [
-    "united kingdom", "uk,", ", uk", "england", "scotland", "wales",
-    "london", "edinburgh", "manchester", "birmingham", "leeds",
+NON_SPAIN_LOCATIONS = [
+    # UK variations — main gap
+    "united kingdom", "united-kingdom", "u.k.", " uk", "uk ",
+    "england", "scotland", "wales", "northern ireland",
+    "london", "edinburgh", "manchester", "birmingham",
+    "leeds", "bristol", "liverpool", "glasgow",
+    # Germany
     "germany", "deutschland", "berlin", "munich", "münchen",
-    "france", "paris", "lyon",
-    "netherlands", "amsterdam",
+    "hamburg", "frankfurt", "cologne", "köln", "düsseldorf",
+    # France
+    "france", "paris", "lyon", "marseille",
+    # Netherlands
+    "netherlands", "amsterdam", "rotterdam",
+    # Italy
     "italy", "rome", "milan", "milano",
-    "portugal", "lisbon", "lisboa",
-    "united states", "usa", "new york", "san francisco",
-    "russia", "moscow",
-    "poland", "warsaw",
-    "romania", "bucharest",
+    # Other non-Spain European
+    "poland", "warsaw", "romania", "bucharest",
+    "czech", "prague", "hungary", "budapest",
+    "sweden", "stockholm", "denmark", "copenhagen",
+    "norway", "oslo", "finland", "helsinki",
+    # Non-European
+    "united states", "usa", "canada", "australia",
+    "india", "singapore", "dubai", "uae",
 ]
 
-# Phrases in the description that mean "you must physically be in country X"
-NON_SPAIN_RESIDENCY_SIGNALS = [
-    "based in germany", "based in uk", "based in france", "based in the uk",
-    "based in netherlands", "based in italy", "based in portugal",
-    "based in the netherlands", "based in united states", "based in the us",
-    "must be located in", "must reside in", "you must live in",
-    "residency in", "german residency", "uk residency",
-    "right to work in germany", "right to work in uk",
-    "right to work in the uk", "work permit germany", "work permit uk",
-    "arbeiten in", "ubicado en alemania", "con sede en", "radicado en",
+SPAIN_RESTRICTION = [
+    "based in spain", "located in spain", "residing in spain",
+    "spain only", "must be in spain",
 ]
+
+NON_SPAIN_RESIDENCY_PHRASES = [
+    "must be based in", "must be located in", "must reside in",
+    "must live in", "right to work in uk", "right to work in germany",
+    "uk right to work", "german work permit", "visa sponsorship not",
+    "no visa sponsorship", "you must be in", "candidates must be in",
+]
+
+
+def is_location_valid(job):
+    location = (job.get("location") or "").lower().strip()
+    title = (job.get("title") or "").lower()
+    desc = (job.get("description") or "").lower()
+    combined = location + " " + title + " " + desc
+
+    # Empty location — pass through
+    if not location or location in ["", "none", "unknown", "remote"]:
+        return True, "unknown"
+
+    # Contains Spain — always pass
+    if "spain" in location or "españa" in location:
+        return True, "spain"
+
+    # Check if location matches a known non-Spain place
+    is_non_spain = any(place in location for place in NON_SPAIN_LOCATIONS)
+
+    if not is_non_spain:
+        return True, "unknown"  # Unknown location, pass through
+
+    # Non-Spain location — only pass if genuinely remote-friendly
+    has_remote_signal = any(signal in combined for signal in REMOTE_SIGNALS)
+
+    if not has_remote_signal:
+        return False, "non_spain_no_remote"
+
+    # Has remote signal — but check it doesn't restrict to non-Spain country
+    restricts_non_spain = any(phrase in desc for phrase in NON_SPAIN_RESIDENCY_PHRASES)
+
+    if restricts_non_spain:
+        return False, "non_spain_restricted_remote"
+
+    return True, "remote"
 
 
 def filter_location(jobs):
-    passed_spain = 0
-    passed_remote = 0
-    passed_unknown = 0
-    rejected_onsite = 0
-    rejected_restricted_remote = 0
+    counts = {
+        "passed_spain": 0,
+        "passed_remote": 0,
+        "passed_unknown": 0,
+        "rejected_non_spain_no_remote": 0,
+        "rejected_non_spain_restricted_remote": 0,
+    }
     rejected_examples = []
-
     filtered = []
+
     for job in jobs:
-        location = (job.get("location") or "").lower().strip()
-        desc = (job.get("description") or "").lower()
-        text = (job.get("title") or "").lower() + " " + desc
-
-        # Condition C — empty / unknown location: pass through
-        if not location or location == "unknown":
-            passed_unknown += 1
+        valid, reason = is_location_valid(job)
+        if valid:
+            if reason == "spain":
+                counts["passed_spain"] += 1
+            elif reason == "remote":
+                counts["passed_remote"] += 1
+            else:
+                counts["passed_unknown"] += 1
             filtered.append(job)
-            continue
-
-        # Condition A — Spain-based:
-        # location contains a Spain signal AND no non-Spanish country in location
-        has_spain = any(s in location for s in SPAIN_SIGNALS)
-        has_non_spain_in_location = any(p in location for p in NON_SPAIN_COUNTRIES)
-        if has_spain and not has_non_spain_in_location:
-            passed_spain += 1
-            filtered.append(job)
-            continue
-
-        # Condition B — Genuinely remote-friendly:
-        # must have a remote signal in title/description AND no residency restriction
-        has_remote_signal = any(s in text for s in REMOTE_SIGNALS)
-        has_residency_restriction = any(p in desc for p in NON_SPAIN_RESIDENCY_SIGNALS)
-        if has_remote_signal and not has_residency_restriction:
-            passed_remote += 1
-            filtered.append(job)
-            continue
-
-        # Reject — determine which bucket
-        if has_remote_signal and has_residency_restriction:
-            rejected_restricted_remote += 1
-            reason = "remote but residency-restricted"
         else:
-            rejected_onsite += 1
-            reason = "onsite outside Spain"
-        if len(rejected_examples) < 3:
-            rejected_examples.append((job.get("title", ""), job.get("company", ""), job.get("location", ""), reason))
+            if reason == "non_spain_no_remote":
+                counts["rejected_non_spain_no_remote"] += 1
+                label = "non-Spain, no remote signal"
+            else:
+                counts["rejected_non_spain_restricted_remote"] += 1
+                label = "non-Spain, remote but country-restricted"
+            if len(rejected_examples) < 5:
+                rejected_examples.append(
+                    (job.get("title", ""), job.get("company", ""), job.get("location", ""), label)
+                )
 
     print("  Location filter results:")
-    print(f"    Passed (Spain-based): {passed_spain}")
-    print(f"    Passed (remote, no country restriction): {passed_remote}")
-    print(f"    Passed (unknown location): {passed_unknown}")
-    print(f"    Rejected (onsite outside Spain): {rejected_onsite}")
-    print(f"    Rejected (remote but restricted to non-Spain country): {rejected_restricted_remote}")
+    print(f"    Passed (Spain-based):                    {counts['passed_spain']}")
+    print(f"    Passed (remote, no country restriction): {counts['passed_remote']}")
+    print(f"    Passed (unknown/unrecognised location):  {counts['passed_unknown']}")
+    print(f"    Rejected (non-Spain, no remote signal):  {counts['rejected_non_spain_no_remote']}")
+    print(f"    Rejected (non-Spain, restricted remote): {counts['rejected_non_spain_restricted_remote']}")
+    total_rejected = counts["rejected_non_spain_no_remote"] + counts["rejected_non_spain_restricted_remote"]
+    print(f"    Total rejected by location filter:       {total_rejected}")
     if rejected_examples:
         print("  Sample rejected jobs:")
-        for title, company, location, reason in rejected_examples:
-            print(f"    [{reason}] \"{title}\" @ {company} — {location}")
+        for title, company, location, label in rejected_examples:
+            print(f"    [{label}] \"{title}\" @ {company} — {location}")
     return filtered
 
 
@@ -427,11 +463,24 @@ def fetch_new_jobs():
     raw_total = len(jobspy_results) + len(remote_results) + len(adzuna_results)
     print(f"  Total raw (before dedup): {raw_total}")
     all_jobs = deduplicate(jobspy_results + remote_results + adzuna_results)
-    print(f"  After dedup: {len(all_jobs)}")
+    print(f"  After dedup: {len(all_jobs)} jobs")
+
+    print("Applying domain blocklist...")
     all_jobs = filter_blocked_sources(all_jobs)
+    print(f"  After domain blocklist: {len(all_jobs)} jobs")
+
+    print("Applying location filter...")
     all_jobs = filter_location(all_jobs)
+    print(f"  After location filter: {len(all_jobs)} jobs")
+
+    print("Applying language filter...")
     all_jobs = filter_language(all_jobs)
+    print(f"  After language filter: {len(all_jobs)} jobs")
+
+    print("Applying language requirements filter...")
     all_jobs = filter_language_requirements(all_jobs)
+    print(f"  After language requirements filter: {len(all_jobs)} jobs")
+
     all_jobs = tag_remote(all_jobs, remote_urls)
 
     seen_urls = load_seen_urls()
