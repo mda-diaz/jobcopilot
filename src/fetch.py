@@ -203,113 +203,81 @@ REMOTE_SIGNALS = [
 
 REMOTE_TAG_SIGNALS = REMOTE_SIGNALS + ["remote", "full remote"]
 
-SPAIN_SIGNALS = [
-    "spain", "españa",
-    # Country code patterns (e.g. "Paterna, VC, ES" / "es, " prefix)
-    ", es", "es,", ", ES", "ES,",
-    # Provinces / major cities
-    "madrid", "barcelona", "valencia", "sevilla", "seville", "zaragoza",
-    "málaga", "malaga", "murcia", "palma", "las palmas", "bilbao",
-    "alicante", "córdoba", "cordoba", "valladolid", "vigo", "gijón",
-    "gijon", "vitoria", "granada", "elche", "oviedo", "badalona",
-    "cartagena", "sabadell", "terrassa", "jerez", "santa cruz de tenerife",
-    "pamplona", "almería", "almeria", "fuenlabrada", "leganés", "leganes",
-    "alcalá de henares", "alcala de henares", "burgos", "albacete",
-    "getafe", "salamanca", "huelva", "logroño", "logrono", "badajoz",
-    "tarragona", "lleida", "girona", "castellón", "castellon", "marbella",
+# Strict whitelist — a job must match at least one of these in its location field.
+# Only remote signals are checked against the full text (title + description).
+SPAIN_WHITELIST = [
+    # Country
+    "spain", "españa", "espana",
+    # Comunidad Valenciana
+    "valencia", "valenciana", "castellon", "castellón",
+    "alicante", "comunidad valenciana",
+    # Major cities / provinces
+    "madrid", "barcelona", "sevilla", "seville", "bilbao",
+    "málaga", "malaga", "zaragoza", "murcia", "palma",
+    "las palmas", "pamplona", "santander", "valladolid",
+    "vigo", "gijon", "gijón", "granada", "salamanca",
+    "burgos", "albacete", "córdoba", "cordoba", "tarragona",
+    "lleida", "girona", "cadiz", "cádiz", "huelva", "badajoz",
+    "toledo", "cuenca", "logroño", "lograno", "vitoria",
+    "donostia", "san sebastian", "oviedo", "leon", "león",
+    "lugo", "ourense", "pontevedra", "elche", "marbella",
+    "jerez", "sabadell", "terrassa", "badalona", "getafe",
+    "fuenlabrada", "leganés", "leganes", "alcalá de henares",
+    "alcala de henares", "almería", "almeria", "cartagena",
+    # Regions / autonomías
     "cantabria", "asturias", "galicia", "cataluña", "catalonia",
     "país vasco", "pais vasco", "euskadi", "andalucía", "andalucia",
-    "comunidad de madrid", "comunidad valenciana", "navarra", "aragón",
-    "aragon", "extremadura", "castilla", "canarias", "canary islands",
+    "comunidad de madrid", "navarra", "aragón", "aragon",
+    "extremadura", "castilla", "canarias", "canary islands",
     "baleares", "balearic islands", "la rioja",
-    # Valencia metro area (Paterna, Sagunto, Torrent, etc.)
+    # Country-code patterns used by jobspy (e.g. "Paterna, VC, ES")
+    ", es", "es,",
+    # Valencia metro area
     "paterna", "sagunto", "torrent", "burjassot", "mislata", "aldaia",
-    "manises", "quart de poblet", "xirivella", "catarroja", "alaquàs",
-    "alaquas", "paiporta", "sedaví", "sedavi", "picanya", "bétera",
-    "betera", "llíria", "llíria", "llíria", "gandia", "ontinyent",
-    "alzira", "sueca", "xàtiva", "xativa", "requena", "utiel",
-]
-
-NON_SPAIN_LOCATIONS = [
-    # UK variations — main gap
-    "united kingdom", "united-kingdom", "u.k.", " uk", "uk ",
-    "england", "scotland", "wales", "northern ireland",
-    "london", "edinburgh", "manchester", "birmingham",
-    "leeds", "bristol", "liverpool", "glasgow",
-    # Germany
-    "germany", "deutschland", "berlin", "munich", "münchen",
-    "hamburg", "frankfurt", "cologne", "köln", "düsseldorf",
-    # France
-    "france", "paris", "lyon", "marseille",
-    # Netherlands
-    "netherlands", "amsterdam", "rotterdam",
-    # Italy
-    "italy", "rome", "milan", "milano",
-    # Other non-Spain European
-    "poland", "warsaw", "romania", "bucharest",
-    "czech", "prague", "hungary", "budapest",
-    "sweden", "stockholm", "denmark", "copenhagen",
-    "norway", "oslo", "finland", "helsinki",
-    # Non-European
-    "united states", "usa", "canada", "australia",
-    "india", "singapore", "dubai", "uae",
-]
-
-SPAIN_RESTRICTION = [
-    "based in spain", "located in spain", "residing in spain",
-    "spain only", "must be in spain",
-]
-
-NON_SPAIN_RESIDENCY_PHRASES = [
-    "must be based in", "must be located in", "must reside in",
-    "must live in", "right to work in uk", "right to work in germany",
-    "uk right to work", "german work permit", "visa sponsorship not",
-    "no visa sponsorship", "you must be in", "candidates must be in",
+    "manises", "quart de poblet", "xirivella", "catarroja",
+    "paiporta", "picanya", "bétera", "betera", "gandia", "ontinyent",
+    "alzira", "sueca", "xàtiva", "xativa", "requena",
+    # Remote signals that explicitly open to Spain
+    "remote spain", "spain remote", "remoto españa",
+    "teletrabajo españa", "remote emea", "remote europe",
+    "work from anywhere", "fully remote", "100% remote",
+    "teletrabajo", "trabajo remoto", "remoto",
 ]
 
 
 def is_location_valid(job):
+    """Return (valid: bool, reason: str).
+
+    Whitelist-only: a job passes only if its location field contains a
+    Spain/Spanish-city term, OR if its location is empty/remote AND its
+    description contains a genuine remote-work signal.
+    """
     location = (job.get("location") or "").lower().strip()
-    title = (job.get("title") or "").lower()
-    desc = (job.get("description") or "").lower()
-    combined = location + " " + title + " " + desc
+    desc = (job.get("description") or "")[:2000].lower()
+    combined = location + " " + desc
 
-    # Empty location — pass through
-    if not location or location in ["", "none", "unknown", "remote"]:
-        return True, "unknown"
-
-    # Contains Spain — always pass
-    if "spain" in location or "españa" in location:
+    # Location explicitly matches whitelist → pass
+    if any(term in location for term in SPAIN_WHITELIST):
         return True, "spain"
 
-    # Check if location matches a known non-Spain place
-    is_non_spain = any(place in location for place in NON_SPAIN_LOCATIONS)
+    # Location is empty or generic "remote" → only pass if description
+    # contains a genuine remote-work signal (teletrabajo, fully remote, etc.)
+    if not location or location in ("remote", "none", "unknown", "anywhere"):
+        has_remote = any(s in combined for s in REMOTE_SIGNALS)
+        if has_remote:
+            return True, "remote"
+        return False, "no_location_no_remote"
 
-    if not is_non_spain:
-        return True, "unknown"  # Unknown location, pass through
-
-    # Non-Spain location — only pass if genuinely remote-friendly
-    has_remote_signal = any(signal in combined for signal in REMOTE_SIGNALS)
-
-    if not has_remote_signal:
-        return False, "non_spain_no_remote"
-
-    # Has remote signal — but check it doesn't restrict to non-Spain country
-    restricts_non_spain = any(phrase in desc for phrase in NON_SPAIN_RESIDENCY_PHRASES)
-
-    if restricts_non_spain:
-        return False, "non_spain_restricted_remote"
-
-    return True, "remote"
+    # Location present but not on whitelist → reject
+    return False, "non_spain"
 
 
 def filter_location(jobs):
     counts = {
         "passed_spain": 0,
         "passed_remote": 0,
-        "passed_unknown": 0,
-        "rejected_non_spain_no_remote": 0,
-        "rejected_non_spain_restricted_remote": 0,
+        "rejected_non_spain": 0,
+        "rejected_no_location": 0,
     }
     rejected_examples = []
     filtered = []
@@ -319,35 +287,32 @@ def filter_location(jobs):
         if valid:
             if reason == "spain":
                 counts["passed_spain"] += 1
-            elif reason == "remote":
-                counts["passed_remote"] += 1
             else:
-                counts["passed_unknown"] += 1
+                counts["passed_remote"] += 1
             filtered.append(job)
         else:
-            if reason == "non_spain_no_remote":
-                counts["rejected_non_spain_no_remote"] += 1
-                label = "non-Spain, no remote signal"
+            if reason == "non_spain":
+                counts["rejected_non_spain"] += 1
+                label = "non-Spain location"
             else:
-                counts["rejected_non_spain_restricted_remote"] += 1
-                label = "non-Spain, remote but country-restricted"
+                counts["rejected_no_location"] += 1
+                label = "no location + no remote signal"
             if len(rejected_examples) < 5:
                 rejected_examples.append(
                     (job.get("title", ""), job.get("company", ""), job.get("location", ""), label)
                 )
 
-    print("  Location filter results:")
-    print(f"    Passed (Spain-based):                    {counts['passed_spain']}")
-    print(f"    Passed (remote, no country restriction): {counts['passed_remote']}")
-    print(f"    Passed (unknown/unrecognised location):  {counts['passed_unknown']}")
-    print(f"    Rejected (non-Spain, no remote signal):  {counts['rejected_non_spain_no_remote']}")
-    print(f"    Rejected (non-Spain, restricted remote): {counts['rejected_non_spain_restricted_remote']}")
-    total_rejected = counts["rejected_non_spain_no_remote"] + counts["rejected_non_spain_restricted_remote"]
-    print(f"    Total rejected by location filter:       {total_rejected}")
+    total_rejected = counts["rejected_non_spain"] + counts["rejected_no_location"]
+    print("  Location filter results (whitelist-only):")
+    print(f"    Passed (Spain location):        {counts['passed_spain']}")
+    print(f"    Passed (remote signal in desc): {counts['passed_remote']}")
+    print(f"    Rejected (non-Spain location):  {counts['rejected_non_spain']}")
+    print(f"    Rejected (no location/remote):  {counts['rejected_no_location']}")
+    print(f"    Total rejected:                 {total_rejected}")
     if rejected_examples:
-        print("  Sample rejected jobs:")
-        for title, company, location, label in rejected_examples:
-            print(f"    [{label}] \"{title}\" @ {company} — {location}")
+        print("  Sample rejected:")
+        for title, company, loc, label in rejected_examples:
+            print(f"    [{label}] \"{title}\" @ {company} — {loc}")
     return filtered
 
 
