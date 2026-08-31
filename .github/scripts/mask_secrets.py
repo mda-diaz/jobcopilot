@@ -1,6 +1,3 @@
-from pdfminer.high_level import extract_text
-
-
 def emit_masks(text):
     for line in text.splitlines():
         line = line.strip()
@@ -9,14 +6,9 @@ def emit_masks(text):
 
 
 def main():
-    with open("config/profile.yaml", encoding="utf-8") as f:
-        profile_text = f.read()
-    emit_masks(profile_text)
-
-    cv_text = extract_text("config/cv.pdf")
-    with open("config/cv_template.md", "w", encoding="utf-8") as f:
-        f.write(cv_text)
-    emit_masks(cv_text)
+    for path in ("config/profile.yaml", "config/cv_template.md"):
+        with open(path, encoding="utf-8") as f:
+            emit_masks(f.read())
 
 
 if __name__ == "__main__":

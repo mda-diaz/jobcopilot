@@ -26,22 +26,25 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # config/profile.yaml and config/cv.pdf are gitignored, so they don't
-      # exist on this runner. Restore them from base64 repo secrets — nothing
-      # is committed, the decoded files only ever live in this ephemeral job.
+      # config/profile.yaml and config/cv_template.md are gitignored, so they
+      # don't exist on this runner. Restore them from base64 repo secrets —
+      # nothing is committed, the decoded files only ever live in this
+      # ephemeral job. Note: this carries the *extracted CV text*
+      # (cv_template.md), not the original PDF — tailor.py checks for that
+      # cache first and only falls back to cv.pdf if it's missing. The raw
+      # PDF's base64 form is well over GitHub's per-secret size limit for a
+      # typical multi-page CV; the extracted plain text is a few KB and fits.
       - name: Restore CV and profile from secrets
         run: |
           mkdir -p config
           echo "${{ secrets.PROFILE_YAML_B64 }}" | base64 --decode > config/profile.yaml
-          echo "${{ secrets.CV_PDF_B64 }}" | base64 --decode > config/cv.pdf
+          echo "${{ secrets.CV_TEMPLATE_MD_B64 }}" | base64 --decode > config/cv_template.md
 
       # This repo is public, so job logs are public too. GitHub only masks
       # secrets.* values themselves, not the decoded file content — register
       # every substantive line as a masked value before the pipeline runs, so
       # any accidental print of your name, contact info, or work history
-      # renders as *** in the log instead of leaking. Also caches the
-      # extracted CV text at config/cv_template.md so tailor.py doesn't
-      # re-extract it.
+      # renders as *** in the log instead of leaking.
       - name: Mask personal data in logs
         run: python3 .github/scripts/mask_secrets.py
 
