@@ -13,6 +13,7 @@ sys.path.insert(0, str(BASE_DIR / "src"))
 
 import digest
 import fetch
+import notify
 import score
 import tailor
 
@@ -82,7 +83,13 @@ def main():
     except Exception as e:
         print(f"[ERROR] Digest step failed: {e}")
 
-    # ── Step 5: Update seen_jobs.json ────────────────────────────────────────
+    # ── Step 5: Send digest to Telegram ─────────────────────────────────────
+    try:
+        notify.send_digest(top_jobs)
+    except Exception as e:
+        print(f"[ERROR] Telegram notify step failed: {e}")
+
+    # ── Step 6: Update seen_jobs.json ────────────────────────────────────────
     try:
         existing = load_seen_jobs()
         added = save_seen_jobs(existing, jobs)

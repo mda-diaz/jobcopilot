@@ -1,0 +1,51 @@
+name: Daily Job Digest
+
+on:
+  schedule:
+    # 06:00 UTC ≈ 07:00 Madrid (CET). During CEST (UTC+2) this runs ~08:00 local —
+    # cron can't express the DST shift, so expect a ~1h drift for part of the year.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.9"
+
+      - run: pip install -r requirements.txt
+
+      # config/profile.yaml and config/cv.pdf are gitignored, so they don't
+      # exist on this runner. Restore them from base64 repo secrets — nothing
+      # is committed, the decoded files only ever live in this ephemeral job.
+      - name: Restore CV and profile from secrets
+        run: |
+          mkdir -p config
+          echo "${{ secrets.PROFILE_YAML_B64 }}" | base64 --decode > config/profile.yaml
+          echo "${{ secrets.CV_PDF_B64 }}" | base64 --decode > config/cv.pdf
+
+      # This repo is public, so job logs are public too. GitHub only masks
+      # secrets.* values themselves, not the decoded file content — register
+      # every substantive line as a masked value before the pipeline runs, so
+      # any accidental print of your name, contact info, or work history
+      # renders as *** in the log instead of leaking. Also caches the
+      # extracted CV text at config/cv_template.md so tailor.py doesn't
+      # re-extract it.
+      - name: Mask personal data in logs
+        run: python3 .github/scripts/mask_secrets.py
+
+      - run: python3 main.py
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_API_KEY: ${{ secrets.ADZUNA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      # Delivery is via Telegram (src/notify.py), not a repo commit:
+      # data/digests/ is gitignored (CLAUDE.md: "Do not commit generated output"),
+      # so results are not written back to the repository.
