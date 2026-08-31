@@ -26,6 +26,27 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # data/seen_jobs.json is gitignored and this runner is thrown away
+      # after every run, so "already seen" dedup wouldn't otherwise survive
+      # between scheduled runs — every run would resend every still-live
+      # listing as if new. Restore the most recent cache entry (fuzzy-matched
+      # by the "seen-jobs-" prefix, since the exact key below is always a
+      # fresh run id and will never hit on restore) to carry state forward.
+      - name: Restore seen-jobs cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/seen_jobs.json
+          key: seen-jobs-${{ github.run_id }}
+          restore-keys: |
+            seen-jobs-
+
+      # First run ever (no cache hit yet): main.py/fetch.py expect this file
+      # to exist and don't handle a missing one.
+      - name: Ensure seen-jobs file exists
+        run: |
+          mkdir -p data
+          [ -f data/seen_jobs.json ] || echo "[]" > data/seen_jobs.json
+
       # config/profile.yaml and config/cv_template.md are gitignored, so they
       # don't exist on this runner. Restore them from base64 repo secrets —
       # nothing is committed, the decoded files only ever live in this
@@ -59,3 +80,14 @@ jobs:
       # Delivery is via Telegram (src/notify.py), not a repo commit:
       # data/digests/ is gitignored (CLAUDE.md: "Do not commit generated output"),
       # so results are not written back to the repository.
+
+      # main.py updates data/seen_jobs.json in-place at the end of its own
+      # run — save that updated state under a key unique to this run (never
+      # collides, so this always succeeds) for the next run's restore step
+      # to pick up via the "seen-jobs-" prefix match above.
+      - name: Save seen-jobs cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/seen_jobs.json
+          key: seen-jobs-${{ github.run_id }}
