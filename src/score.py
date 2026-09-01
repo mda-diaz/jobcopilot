@@ -8,42 +8,113 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+# Scoring rubric: the LLM returns one sub-score per dimension and the total is
+# summed here in Python. gpt-4o-mini is unreliable at holding a weighted rubric
+# in its head, and a single opaque 0-100 is impossible to debug when it is wrong.
+RUBRIC_WEIGHTS = {
+    "remote": 10,
+    "spain_payable": 10,
+    "global_company": 10,
+    "human_facing": 25,
+    "language": 10,
+    "process_work": 10,
+    "domain_bonus": 15,
+}
+# Weights sum to 90; the LLM's own overall judgement fills the last 10.
+RUBRIC_WEIGHTS["profile_fit"] = 10
+
 
 def load_config():
     with open(BASE_DIR / "config" / "profile.yaml") as f:
         return yaml.safe_load(f)
 
 
+def truncate_description(text, head=1400, tail=800):
+    """Keep the role summary AND the requirements block.
+
+    Spain-eligibility and hard language requirements almost always sit at the
+    very bottom of a listing, so a plain head-only truncation hid exactly the
+    evidence the spain_payable and language dimensions need.
+    """
+    text = text or ""
+    if len(text) <= head + tail:
+        return text
+    return text[:head] + "\n\n[...]\n\n" + text[-tail:]
+
+
 def build_prompt(profile_str, work_mode_str, job):
-    description = (job.get("description") or "")[:2000]
+    description = truncate_description(job.get("description"))
     user_content = f"""USER PROFILE:
 {profile_str}
 Preferred work mode: {work_mode_str}
 
-WORK MODE RULES:
-- User accepts: Spain-based (any city, but preference Valencia), remote from anywhere in Europe
-- If job is fully remote and open to European candidates: do not penalize for location
-- If job requires presence in a specific non-Spanish city with no remote option: apply -20 score penalty
-- If job description mentions "remote", "remoto", "full remote", or "work from anywhere in Europe": treat location as Spain-compatible
-- "remote" or "remoto" in the title or description are positive signals: increase score by up to +10
-- A job located in Valencia is the user's home base — the most convenient option
-  available regardless of remote/hybrid/on-site status. Do not apply any on-site
-  penalty for a Valencia-based role, and be more flexible on role type/seniority
-  fit than you would be for an equivalent job elsewhere
+HOW TO JUDGE THIS JOB:
+Judge the WORK DESCRIBED, not the job title. This person's background is HR,
+but the title may never say "HR", "people" or "recursos humanos" and the role
+can still be an excellent match. Roles about supporting employees, partners,
+vendors, clients or members in an operations capacity are frequently the same
+work under a different name. Never reject on title alone.
+
+Rate the job on each dimension below. Use the FULL range — a 5 everywhere is
+a useless answer. Score only on evidence in the description; when a dimension
+is genuinely not addressed, use the "silent" value named in its rule.
+
+remote (0-10)
+  Fully remote = 10. Remote with occasional travel = 8. Hybrid = 4.
+  On-site in Valencia = 8 (home base, no relocation cost).
+  On-site anywhere else in Spain = 1. On-site outside Spain = 0.
+
+spain_payable (0-10)
+  Can someone resident in Spain be hired and paid here? This is close to a
+  deal-breaker, so be strict.
+  Explicitly Spain, or EMEA/Europe-wide, or names an EOR (Deel, Remote.com,
+  Oyster, Velocity, Globalization Partners) = 10.
+  Remote in Europe but silent on country = 5 (the "silent" value).
+  Names only other countries, or requires US/UK/other work authorization,
+  or is a US-payroll role = 0.
+
+global_company (0-10)
+  Multinational, several countries, international customers or teams = 10.
+  Regional with some international reach = 6.
+  Single-country SME or local agency = 2.
+
+human_facing (0-25)
+  THE HEAVIEST DIMENSION — score it carefully.
+  The core of the job is resolving problems FOR people through direct human
+  contact: employees, partners, vendors, clients, members, candidates.
+  Direct contact is the whole job = 25.
+  Substantial contact alongside other duties = 15.
+  Occasional stakeholder contact, mostly independent work = 6.
+  Primarily coding, data analysis, design, or solo administrative work = 0.
+
+language (0-10)
+  Works in English and/or Spanish = 10.
+  Another language listed as nice-to-have = 7.
+  Fluent German, French, Dutch, Italian or similar as a HARD requirement = 0.
+
+process_work (0-10)
+  Structured, recurring, procedural work with clear ownership and defined
+  workflows = 10. Note: HIGH REPETITION IS A POSITIVE HERE, NOT A NEGATIVE.
+  This person is comfortable with repeated tasks; do not penalise them.
+  Ambiguous, undefined, build-it-from-nothing work = 3.
+
+domain_bonus (0-15)
+  Sport, fitness, endurance, outdoor, athletics or wellness industry = 15.
+  Adjacent — health tech, wearables, nutrition, events, sports media = 8.
+  Anything else = 0. Do not award partial credit for a company that merely
+  offers a gym benefit.
+
+profile_fit (0-10)
+  Everything else: skills overlap, seniority, and the deal_breakers listed in
+  the profile above. A junior or intern posting scores 0 here.
 
 ROLE TYPE RULES:
-- User is an HR generalist/HRBP — they work IN HR, not managing payroll departments or leading payroll teams
-- If the role is primarily a Payroll Manager, Payroll Lead, or Head of Payroll, score it maximum 30 regardless of other factors
-- If the role requires managing a payroll team as main responsibility, apply -30 penalty
-- Payroll as a skill used in an HR generalist role is fine and should not be penalized
-- HRBP or HR Ops roles that involve moving away from traditional/administrative HR
-  tasks toward modernized, data-driven, or AI-enabled ways of working (e.g. people
-  analytics, HR technology, process automation, AI-assisted HR tools) are an ideal
-  fit — treat this as a strong positive signal and score accordingly
-- The title may not say "HR" at all — roles about supporting internal employees or
-  external/internal partners in an operations capacity (employee support, partner
-  support, shared services, workplace experience, etc.) can be genuine HR/people-ops
-  work. Judge these on actual fit with the profile below, not on the title
+- This person works IN HR; they do not manage payroll departments or lead
+  payroll teams. A Payroll Manager / Payroll Lead / Head of Payroll role gets
+  profile_fit 0 and human_facing no higher than 5.
+- Payroll as one skill inside a generalist or operations role is fine.
+- Moving away from traditional administrative HR toward data-driven, modern or
+  AI-enabled ways of working is a strong positive in profile_fit.
 
 JOB:
 Title: {job.get("title", "")}
@@ -52,13 +123,20 @@ Location: {job.get("location", "")}
 Remote: {"yes" if job.get("remote") else "no"}
 Description: {description}
 
-Score this job from 0-100 based on fit with the profile.
-Consider: skills match, seniority, industry, location, work mode, deal-breakers, and the work mode rules above.
-
 Respond ONLY in this JSON format:
 {{
-  "score": <int 0-100>,
+  "scores": {{
+    "remote": <int 0-10>,
+    "spain_payable": <int 0-10>,
+    "global_company": <int 0-10>,
+    "human_facing": <int 0-25>,
+    "language": <int 0-10>,
+    "process_work": <int 0-10>,
+    "domain_bonus": <int 0-15>,
+    "profile_fit": <int 0-10>
+  }},
   "reason": "<exactly 2 sentences explaining the score>",
+  "non_hr_read": "<if the title is not HR-flavoured, one sentence on why the work still fits the profile — empty string if the title is clearly HR, or if it genuinely does not fit>",
   "flags": ["<red flag 1>", "<red flag 2>"]
 }}"""
     return user_content
@@ -85,6 +163,18 @@ def call_llm(profile_str, work_mode_str, job):
     return response.choices[0].message.content
 
 
+def total_from_subscores(subscores):
+    """Sum the rubric deterministically, clamping each dimension to its weight."""
+    total = 0
+    for key, weight in RUBRIC_WEIGHTS.items():
+        try:
+            value = int(subscores.get(key, 0))
+        except (TypeError, ValueError):
+            value = 0
+        total += max(0, min(value, weight))
+    return max(0, min(total, 100))
+
+
 def parse_response(raw):
     try:
         # Strip markdown code fences if the model wraps its response
@@ -93,10 +183,26 @@ def parse_response(raw):
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
-        return json.loads(text)
+        data = json.loads(text)
     except Exception:
-        return {"score": 0, "reason": "parse error", "flags": []}
+        return {"score": 0, "reason": "parse error", "flags": [], "subscores": {}, "non_hr_read": ""}
 
+    subscores = data.get("scores") or {}
+    if not isinstance(subscores, dict):
+        subscores = {}
+    return {
+        "score": total_from_subscores(subscores),
+        "subscores": subscores,
+        "reason": data.get("reason", ""),
+        "non_hr_read": data.get("non_hr_read", "") or "",
+        "flags": data.get("flags") or [],
+    }
+
+
+# ── Title gate ───────────────────────────────────────────────────────────────
+# Three-way, not binary: allow / maybe / reject. The "maybe" bucket is what
+# catches people-ops work hiding under a non-HR title. It is pure substring
+# matching, so it costs nothing until a job actually reaches the LLM.
 
 HR_TITLE_KEYWORDS = [
     "human resources", "recursos humanos", "hr ", " hr", "hrbp",
@@ -112,18 +218,75 @@ HR_TITLE_KEYWORDS = [
     "employee experience", "employee support", "employee relations",
     "internal support", "partner support", "operations support",
     "workplace experience", "shared services",
+    # Operations vocabulary: the work shape this person fits, whatever the
+    # profession the title claims.
+    "customer success", "client services", "client success",
+    "member services", "partner operations", "partner manager",
+    "service delivery", "business operations", "community operations",
+    "trust and safety", "trust & safety", "account coordinator",
+    "program coordinator", "operations specialist", "operations coordinator",
+    "atención al cliente", "soporte", "gestor de cuentas",
 ]
 
+# Absolute rejects: these win over everything, including the allow list. The
+# user works IN HR and does not manage payroll teams, so "payroll" appearing in
+# HR_TITLE_KEYWORDS must not rescue a Payroll Manager posting.
 HR_TITLE_REJECT_KEYWORDS = [
     "payroll manager", "payroll lead", "head of payroll", "payroll team manager",
 ]
 
+# Profession rejects: applied ONLY when the title carries no allow-list signal.
+# Checked second on purpose — a replay over 14 daily CSVs showed that treating
+# these as absolute killed "Community Developer – Leadership & HR (B2B)", which
+# had scored 95. A title that names both an engineering role and HR work is a
+# job for the LLM to judge, not for a substring match.
+PROFESSION_REJECT_KEYWORDS = [
+    "software engineer", "backend", "frontend", "full stack", "fullstack",
+    "developer", "desarrollador", "data engineer", "devops", "sre ",
+    "machine learning engineer", "qa engineer", "security engineer",
+    "nurse", "enfermer", "driver", "conductor", "chef", "cocinero",
+    "warehouse", "almacén", "electrician", "electricista",
+]
+
+# Signals scanned in the description for the "maybe" bucket. Two or more, plus
+# a remote tag, is enough to buy one LLM call.
+MAYBE_SIGNALS = [
+    "stakeholder", "escalation", "escalación", "internal teams",
+    "partners", "troubleshoot", "ticket", "sla", "cross-functional",
+    "spanish and english", "english and spanish", "inglés y español",
+    "employee", "empleado", "point of contact", "punto de contacto",
+    "resolve issues", "resolver incidencias", "case management",
+]
+MAYBE_MIN_SIGNALS = 2
+
+
+def title_gate(job):
+    """Return 'allow', 'maybe' or 'reject' for a job dict."""
+    title_lower = (job.get("title") or "").lower()
+
+    # Absolute rejects beat the allow list.
+    if any(kw in title_lower for kw in HR_TITLE_REJECT_KEYWORDS):
+        return "reject"
+    if any(kw in title_lower for kw in HR_TITLE_KEYWORDS):
+        return "allow"
+    # Profession rejects only bite when nothing above matched.
+    if any(kw in title_lower for kw in PROFESSION_REJECT_KEYWORDS):
+        return "reject"
+
+    # Unknown title: buy an LLM call only for remote roles whose description
+    # reads like human-facing operations work.
+    if not job.get("remote"):
+        return "reject"
+    description = (job.get("description") or "").lower()
+    hits = sum(1 for s in MAYBE_SIGNALS if s in description)
+    if hits >= MAYBE_MIN_SIGNALS:
+        return "maybe"
+    return "reject"
+
 
 def is_hr_relevant(title):
-    title_lower = title.lower()
-    if any(kw in title_lower for kw in HR_TITLE_REJECT_KEYWORDS):
-        return False
-    return any(kw in title_lower for kw in HR_TITLE_KEYWORDS)
+    """Back-compat shim: title-only check, used by callers outside score_jobs."""
+    return title_gate({"title": title}) == "allow"
 
 
 ON_SITE_PENALTIES = ["presencial", "100% on-site"]
@@ -163,40 +326,49 @@ def apply_penalties(job, score, flags):
     return score, flags
 
 
-def score_jobs(jobs):
+def score_jobs(jobs, call_llm_fn=None):
+    """Score jobs. Pass call_llm_fn=None-returning stub to dry-run the gate."""
     config = load_config()
     profile_str = yaml.dump(config, allow_unicode=True)
     work_mode_str = " or ".join(config.get("work_mode", ["remote", "hybrid"]))
     min_score = config.get("min_score", 60)
+    llm = call_llm_fn or call_llm
 
     scored = []
-    title_rejected = 0
+    buckets = {"allow": 0, "maybe": 0, "reject": 0}
 
     for job in jobs:
-        if not is_hr_relevant(job.get("title", "")):
+        bucket = title_gate(job)
+        buckets[bucket] += 1
+        job["gate"] = bucket
+
+        if bucket == "reject":
             job["score"] = 0
-            job["reason"] = "Job title not related to HR"
+            job["reason"] = "Title gate: not a plausible fit"
             job["flags"] = ["irrelevant role"]
+            job["subscores"] = {}
+            job["non_hr_read"] = ""
             scored.append(job)
-            title_rejected += 1
             continue
 
         try:
-            raw = call_llm(profile_str, work_mode_str, job)
+            raw = llm(profile_str, work_mode_str, job)
             result = parse_response(raw)
         except Exception as e:
             print(f"[score] Error scoring '{job.get('title')}' at '{job.get('company')}': {e}")
-            result = {"score": 0, "reason": "scoring error", "flags": []}
+            result = {"score": 0, "reason": "scoring error", "flags": [], "subscores": {}, "non_hr_read": ""}
 
         score, flags = apply_penalties(job, int(result.get("score", 0)), result.get("flags", []))
         job["score"] = score
         job["reason"] = result.get("reason", "")
+        job["subscores"] = result.get("subscores", {})
+        job["non_hr_read"] = result.get("non_hr_read", "")
         job["flags"] = flags
         scored.append(job)
 
-    llm_scored = len(scored) - title_rejected
+    llm_scored = buckets["allow"] + buckets["maybe"]
     above_threshold = sum(1 for j in scored if j["score"] >= min_score)
-    print(f"  Title filter rejected {title_rejected} jobs before LLM scoring")
+    print(f"  Title gate: {buckets['allow']} allow, {buckets['maybe']} maybe, {buckets['reject']} reject")
     print(f"  Jobs sent to LLM: {llm_scored}")
     print(f"  Jobs above min_score ({min_score}): {above_threshold}")
     scored.sort(key=lambda j: j["score"], reverse=True)
@@ -209,8 +381,19 @@ def main():
     sys.path.insert(0, str(Path(__file__).parent))
     from fetch import fetch_new_jobs
 
+    dry_run = "--no-llm" in sys.argv
+
     jobs = fetch_new_jobs()
     print(f"Scoring {len(jobs)} new jobs...")
+
+    if dry_run:
+        print("  (--no-llm: gate only, no API calls)")
+        stub = lambda *a, **k: '{"scores": {}, "reason": "dry run", "flags": []}'
+        scored, min_score = score_jobs(jobs, call_llm_fn=stub)
+        for job in scored:
+            if job.get("gate") == "maybe":
+                print(f"  [maybe] {job.get('title')} @ {job.get('company')}")
+        return
 
     scored, min_score = score_jobs(jobs)
     above = [j for j in scored if j["score"] >= min_score]
@@ -219,6 +402,10 @@ def main():
     for job in above[:5]:
         print(f"[{job['score']}] {job['title']} @ {job['company']} ({job['location']})")
         print(f"  {job['reason']}")
+        if job.get("non_hr_read"):
+            print(f"  Non-HR read: {job['non_hr_read']}")
+        if job.get("subscores"):
+            print(f"  Sub-scores: {job['subscores']}")
         if job["flags"]:
             print(f"  Flags: {', '.join(job['flags'])}")
         print(f"  {job['url']}\n")
