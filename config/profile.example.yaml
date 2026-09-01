@@ -35,3 +35,20 @@ deal_breakers:
   - intern
   - presencial
   - "100% on-site"
+
+# ── Fit criteria (fed verbatim into the scoring prompt) ──────────────────────
+must_have:
+  - fully remote, or based in Valencia
+  - hireable and payable while resident in Spain (direct contract or EOR)
+  - working language is English and/or Spanish
+strong_signals:
+  - resolving problems for people (employees, partners, vendors, clients, members) through direct contact
+  - global or multinational company with international teams
+  - structured, recurring process work with clear ownership
+industries_bonus:
+  - sport
+  - fitness
+  - endurance
+  - outdoor
+  - athletics
+  - wellness
