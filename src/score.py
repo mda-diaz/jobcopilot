@@ -21,17 +21,29 @@ def build_prompt(profile_str, work_mode_str, job):
 Preferred work mode: {work_mode_str}
 
 WORK MODE RULES:
-- User accepts: Spain-based (any city), remote from anywhere in Europe
+- User accepts: Spain-based (any city, but preference Valencia), remote from anywhere in Europe
 - If job is fully remote and open to European candidates: do not penalize for location
 - If job requires presence in a specific non-Spanish city with no remote option: apply -20 score penalty
 - If job description mentions "remote", "remoto", "full remote", or "work from anywhere in Europe": treat location as Spain-compatible
 - "remote" or "remoto" in the title or description are positive signals: increase score by up to +10
+- A job located in Valencia is the user's home base — the most convenient option
+  available regardless of remote/hybrid/on-site status. Do not apply any on-site
+  penalty for a Valencia-based role, and be more flexible on role type/seniority
+  fit than you would be for an equivalent job elsewhere
 
 ROLE TYPE RULES:
 - User is an HR generalist/HRBP — they work IN HR, not managing payroll departments or leading payroll teams
 - If the role is primarily a Payroll Manager, Payroll Lead, or Head of Payroll, score it maximum 30 regardless of other factors
 - If the role requires managing a payroll team as main responsibility, apply -30 penalty
 - Payroll as a skill used in an HR generalist role is fine and should not be penalized
+- HRBP or HR Ops roles that involve moving away from traditional/administrative HR
+  tasks toward modernized, data-driven, or AI-enabled ways of working (e.g. people
+  analytics, HR technology, process automation, AI-assisted HR tools) are an ideal
+  fit — treat this as a strong positive signal and score accordingly
+- The title may not say "HR" at all — roles about supporting internal employees or
+  external/internal partners in an operations capacity (employee support, partner
+  support, shared services, workplace experience, etc.) can be genuine HR/people-ops
+  work. Judge these on actual fit with the profile below, not on the title
 
 JOB:
 Title: {job.get("title", "")}
@@ -94,6 +106,12 @@ HR_TITLE_KEYWORDS = [
     "people partner", "hr manager", "hr generalist", "hr analyst",
     "hr operations", "hr director", "hr coordinator",
     "generalista", "analista de personas", "gestión de personas",
+    # Not HR-titled, but often HR/people-ops work in disguise — let these
+    # through to the LLM so it can judge fit against the profile instead of
+    # rejecting on title alone.
+    "employee experience", "employee support", "employee relations",
+    "internal support", "partner support", "operations support",
+    "workplace experience", "shared services",
 ]
 
 HR_TITLE_REJECT_KEYWORDS = [
@@ -110,25 +128,36 @@ def is_hr_relevant(title):
 
 ON_SITE_PENALTIES = ["presencial", "100% on-site"]
 REMOTE_SIGNALS = ["remote", "remoto", "full remote", "work from anywhere", "teletrabajo"]
+VALENCIA_SIGNALS = ["valencia", "valència"]
 
 
 def apply_penalties(job, score, flags):
     flags = list(flags)
     description = (job.get("description") or "").lower()
     title = (job.get("title") or "").lower()
+    location = (job.get("location") or "").lower()
     text = title + " " + description
 
-    # Hard cap for on-site deal-breakers
-    for phrase in ON_SITE_PENALTIES:
-        if phrase in text:
-            if score > 40:
-                flags.append(f"On-site penalty: '{phrase}' detected — score capped at 40")
-                score = 40
-            break
+    is_valencia = any(s in location for s in VALENCIA_SIGNALS)
+
+    # Hard cap for on-site deal-breakers — skip for Valencia, the user's home base,
+    # where on-site carries no relocation/commute tradeoff
+    if not is_valencia:
+        for phrase in ON_SITE_PENALTIES:
+            if phrase in text:
+                if score > 40:
+                    flags.append(f"On-site penalty: '{phrase}' detected — score capped at 40")
+                    score = 40
+                break
 
     # Remote bonus: +10 if already flagged remote or remote signal in text, cap at 100
     is_remote = job.get("remote") or any(s in text for s in REMOTE_SIGNALS)
     if is_remote and score <= 90:
+        score = min(score + 10, 100)
+
+    # Valencia bonus: +10 for the user's home base, cap at 100. Stacks with the
+    # remote bonus above — a remote Valencia-based listing gets both.
+    if is_valencia and score <= 90:
         score = min(score + 10, 100)
 
     return score, flags
@@ -183,10 +212,11 @@ def main():
     jobs = fetch_new_jobs()
     print(f"Scoring {len(jobs)} new jobs...")
 
-    results = score_jobs(jobs)
-    print(f"\nJobs above min_score threshold: {len(results)}\n")
+    scored, min_score = score_jobs(jobs)
+    above = [j for j in scored if j["score"] >= min_score]
+    print(f"\nJobs above min_score threshold: {len(above)}\n")
 
-    for job in results[:5]:
+    for job in above[:5]:
         print(f"[{job['score']}] {job['title']} @ {job['company']} ({job['location']})")
         print(f"  {job['reason']}")
         if job["flags"]:
