@@ -62,10 +62,28 @@ def send_message(token, chat_id, text, parse_mode=None):
     response.raise_for_status()
 
 
+def get_chat_ids():
+    raw = os.getenv("TELEGRAM_CHAT_ID") or ""
+    return [chat_id.strip() for chat_id in raw.split(",") if chat_id.strip()]
+
+
+def send_to_chat(token, chat_id, jobs):
+    try:
+        chunks = chunk_blocks([format_job_markdown(job) for job in jobs])
+        for chunk in chunks:
+            send_message(token, chat_id, chunk, parse_mode="MarkdownV2")
+    except requests.exceptions.RequestException:
+        print(f"[notify] MarkdownV2 send failed for chat {chat_id} — retrying as plain text.")
+        chunks = chunk_blocks([format_job_plain(job) for job in jobs])
+        for chunk in chunks:
+            send_message(token, chat_id, chunk)
+    print(f"[notify] Sent digest to Telegram chat {chat_id} ({len(chunks)} message(s)).")
+
+
 def send_digest(jobs):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
+    chat_ids = get_chat_ids()
+    if not token or not chat_ids:
         print("[notify] Warning: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set — skipping Telegram send.")
         return
 
@@ -73,19 +91,11 @@ def send_digest(jobs):
         print("[notify] No jobs to send.")
         return
 
-    try:
+    for chat_id in chat_ids:
         try:
-            chunks = chunk_blocks([format_job_markdown(job) for job in jobs])
-            for chunk in chunks:
-                send_message(token, chat_id, chunk, parse_mode="MarkdownV2")
-        except requests.exceptions.RequestException:
-            print("[notify] MarkdownV2 send failed — retrying as plain text.")
-            chunks = chunk_blocks([format_job_plain(job) for job in jobs])
-            for chunk in chunks:
-                send_message(token, chat_id, chunk)
-        print(f"[notify] Sent digest to Telegram ({len(chunks)} message(s)).")
-    except Exception as e:
-        print(f"[notify] Error sending Telegram digest: {e}")
+            send_to_chat(token, chat_id, jobs)
+        except Exception as e:
+            print(f"[notify] Error sending Telegram digest to chat {chat_id}: {e}")
 
 
 def main():
