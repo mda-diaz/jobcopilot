@@ -28,6 +28,14 @@ def build_digest(jobs, cv_paths, total_jobs_fetched=None):
         lines += [
             f"## {rank}. {job.get('title', '')} — {job.get('company', '')} (Score: {job.get('score', 0)}/100)",
             f"**Por qué:** {job.get('reason', '')}",
+        ]
+
+        # Only present when the title did not say HR but the work still fits —
+        # this is the line that justifies a widened search.
+        if job.get("non_hr_read"):
+            lines.append(f"**Lectura no-RRHH:** {job['non_hr_read']}")
+
+        lines += [
             f"**Alertas:** {flags_str}",
             f"**Aplicar:** {job.get('url', '')}",
             f"**CV adaptado:** {cv_str}",
@@ -53,7 +61,8 @@ def save_csv(all_scored_jobs):
     DIGESTS_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
     output_path = DIGESTS_DIR / f"jobs_{today}.csv"
-    fields = ["rank", "title", "company", "location", "remote", "score", "reason", "flags", "url", "source", "date_posted"]
+    fields = ["rank", "title", "company", "location", "remote", "score", "subscores",
+              "gate", "non_hr_read", "reason", "flags", "url", "source", "date_posted"]
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
@@ -65,6 +74,9 @@ def save_csv(all_scored_jobs):
                 "location": job.get("location", ""),
                 "remote": "yes" if job.get("remote") else "no",
                 "score": job.get("score", 0),
+                "subscores": " ".join(f"{k}:{v}" for k, v in (job.get("subscores") or {}).items()),
+                "gate": job.get("gate", ""),
+                "non_hr_read": job.get("non_hr_read", ""),
                 "reason": job.get("reason", ""),
                 "flags": " | ".join(job.get("flags") or []),
                 "url": job.get("url", ""),
