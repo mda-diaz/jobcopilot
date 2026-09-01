@@ -4,7 +4,8 @@ on:
   schedule:
     # 09:00 UTC ≈ 10:00 Madrid (CET). During CEST (UTC+2) this runs ~11:00 local —
     # cron can't express the DST shift, so expect a ~1h drift for part of the year.
-    - cron: "0 9 * * *"
+    # Monday-Friday only (1-5 = Mon-Fri in cron's day-of-week field).
+    - cron: "0 9 * * 1-5"
   workflow_dispatch: {}
 
 jobs:

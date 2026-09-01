@@ -61,7 +61,7 @@ def main():
         return
 
     # ── Step 3: Tailor CVs for top 3 ────────────────────────────────────────
-    top_jobs = above[:5]
+    top_jobs = above[:10]
     print("\nTailoring CVs for top 3 jobs...")
     cv_paths = []
     for job in top_jobs[:3]:
