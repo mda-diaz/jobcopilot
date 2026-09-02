@@ -17,10 +17,11 @@ What eats your time isn't applying — it's the daily triage: scanning listings,
 Runs a pipeline that:
 
 1. Fetches jobs from the last 24–72 hours across Indeed, LinkedIn, and Adzuna
-2. Scores each job 0–100 against your profile — skills, seniority, work mode, deal-breakers
-3. Filters to the top 5 and skips anything you've already seen
+2. Scores each job 0–100 against your profile and preferences — skills, seniority, work mode, deal-breakers
+3. Filters to the top 10 and skips anything you've already seen
 4. Rewrites your CV summary and key bullets for the top 3 roles
 5. Saves two files: a markdown digest with reasoning and apply links, and a CSV with all scored jobs
+6. Send top matching open positions with their links through Telegram
 
 You open one file and already know what to do.
 
