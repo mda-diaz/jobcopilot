@@ -199,6 +199,18 @@ REMOTE_SIGNALS = [
     "fully remote", "100% remote", "teletrabajo",
     "trabajo remoto", "remoto", "desde casa",
     "remote-first", "distributed team",
+    # Spain/EU-hiring eligibility signals — catch roles whose location field
+    # names the company's HQ (often outside Spain, sometimes outside the EU
+    # entirely) but whose description makes clear they hire in Spain, e.g.
+    # via an EOR. Named EOR providers are specific enough to avoid false
+    # positives; generic acronyms like "EOR" alone are not included here on
+    # purpose since they collide with ordinary words (e.g. "theory").
+    "eligible to work in spain", "open to candidates in spain",
+    "hire in spain", "hiring in spain", "employer of record",
+    "deel", "remote.com", "oyster hr", "oysterhr.com", "velocity global",
+    "globalization partners", "multiplier.com", "papaya global",
+    "emea", "europe-wide", "across europe", "anywhere in europe",
+    "any eu country", "eu-wide", "within the eu", "based in the eu",
 ]
 
 REMOTE_TAG_SIGNALS = REMOTE_SIGNALS + ["remote", "full remote"]
@@ -248,9 +260,14 @@ SPAIN_WHITELIST = [
 def is_location_valid(job):
     """Return (valid: bool, reason: str).
 
-    Whitelist-only: a job passes only if its location field contains a
-    Spain/Spanish-city term, OR if its location is empty/remote AND its
-    description contains a genuine remote-work signal.
+    A job passes if its location field contains a Spain/Spanish-city term,
+    OR if its location is empty/generic-remote and its description contains
+    a genuine remote-work signal, OR if its location names some other
+    specific place (often the company's HQ, possibly outside the EU) but the
+    description itself signals Spain/EU-wide hiring eligibility — an EOR
+    partner, "hire in Spain", EMEA-wide, etc. That third case is what lets a
+    company headquartered outside Spain or the EU through, as long as the
+    listing makes clear they hire in Spain.
     """
     location = (job.get("location") or "").lower().strip()
     desc = (job.get("description") or "")[:2000].lower()
@@ -268,7 +285,13 @@ def is_location_valid(job):
             return True, "remote"
         return False, "no_location_no_remote"
 
-    # Location present but not on whitelist → reject
+    # Location names a specific non-Spain place — still pass if the
+    # description itself signals Spain/EU-wide hiring eligibility, since the
+    # location field is often just the company's HQ, not who they can hire.
+    if any(s in desc for s in REMOTE_SIGNALS):
+        return True, "remote_eligible_desc"
+
+    # Location present, not on whitelist, no eligibility signal → reject
     return False, "non_spain"
 
 
@@ -276,6 +299,7 @@ def filter_location(jobs):
     counts = {
         "passed_spain": 0,
         "passed_remote": 0,
+        "passed_remote_eligible": 0,
         "rejected_non_spain": 0,
         "rejected_no_location": 0,
     }
@@ -287,6 +311,8 @@ def filter_location(jobs):
         if valid:
             if reason == "spain":
                 counts["passed_spain"] += 1
+            elif reason == "remote_eligible_desc":
+                counts["passed_remote_eligible"] += 1
             else:
                 counts["passed_remote"] += 1
             filtered.append(job)
@@ -304,11 +330,12 @@ def filter_location(jobs):
 
     total_rejected = counts["rejected_non_spain"] + counts["rejected_no_location"]
     print("  Location filter results (whitelist-only):")
-    print(f"    Passed (Spain location):        {counts['passed_spain']}")
-    print(f"    Passed (remote signal in desc): {counts['passed_remote']}")
-    print(f"    Rejected (non-Spain location):  {counts['rejected_non_spain']}")
-    print(f"    Rejected (no location/remote):  {counts['rejected_no_location']}")
-    print(f"    Total rejected:                 {total_rejected}")
+    print(f"    Passed (Spain location):                    {counts['passed_spain']}")
+    print(f"    Passed (remote signal in desc):              {counts['passed_remote']}")
+    print(f"    Passed (EU/Spain-eligible desc, foreign loc): {counts['passed_remote_eligible']}")
+    print(f"    Rejected (non-Spain location):               {counts['rejected_non_spain']}")
+    print(f"    Rejected (no location/remote):               {counts['rejected_no_location']}")
+    print(f"    Total rejected:                              {total_rejected}")
     if rejected_examples:
         print("  Sample rejected:")
         for title, company, loc, label in rejected_examples:
