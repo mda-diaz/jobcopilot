@@ -2,10 +2,11 @@ name: Daily Job Digest
 
 on:
   schedule:
-    # 09:00 UTC ≈ 10:00 Madrid (CET). During CEST (UTC+2) this runs ~11:00 local —
-    # cron can't express the DST shift, so expect a ~1h drift for part of the year.
+    # 08:30 UTC ≈ 09:30 Madrid (CET). During CEST (UTC+2, roughly late March to
+    # late October — including now) this runs ~10:30 local instead — cron can't
+    # express the DST shift, so expect a ~1h drift for part of the year.
     # Monday-Friday only (1-5 = Mon-Fri in cron's day-of-week field).
-    - cron: "0 9 * * 1-5"
+    - cron: "30 8 * * 1-5"
   workflow_dispatch: {}
 
 jobs:
