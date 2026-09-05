@@ -2,12 +2,19 @@ name: Daily Job Digest
 
 on:
   schedule:
-    # 07:30 UTC ≈ 09:30 Madrid (CEST, UTC+2 — in effect now, roughly late March
+    # 08:20 UTC ≈ 10:20 Madrid (CEST, UTC+2 — in effect now, roughly late March
     # to late October). Once clocks fall back to CET (UTC+1) in late October,
-    # this drifts to ~08:30 local — cron can't express the DST shift, so it'll
-    # need flipping back to "30 8 * * 1-5" then if 9:30 local still matters.
+    # this drifts to ~09:20 local — cron can't express the DST shift, so it'll
+    # need flipping back to "20 9 * * 1-5" then if 10:20 local still matters.
+    #
+    # Triggered 40 min before the target delivery time (11:00), not at it: the
+    # full pipeline (scrape + score + tailor + digest + Telegram) has taken
+    # 16-30 min in every run so far, so a 40 min buffer should land the
+    # Telegram message by 11:00 with margin for normal variance and GitHub's
+    # own scheduling delay. An unusually slow scrape day could still push
+    # delivery past 11:00 — this reduces that risk but doesn't guarantee it.
     # Monday-Friday only (1-5 = Mon-Fri in cron's day-of-week field).
-    - cron: "30 7 * * 1-5"
+    - cron: "20 8 * * 1-5"
   workflow_dispatch: {}
 
 jobs:
